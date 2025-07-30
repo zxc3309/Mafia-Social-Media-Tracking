@@ -17,7 +17,7 @@ class Account(Base):
     username = Column(String(255), nullable=False)
     display_name = Column(String(255))
     category = Column(String(100))
-    priority = Column(String(20), default='medium')
+    # 移除priority欄位 - 統一為每日收集
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -85,6 +85,41 @@ class ProcessingLog(Base):
     def __repr__(self):
         return f"<ProcessingLog(timestamp='{self.timestamp}', level='{self.level}')>"
 
+class HumanFeedback(Base):
+    __tablename__ = 'human_feedback'
+    
+    id = Column(Integer, primary_key=True)
+    analyzed_post_id = Column(Integer, nullable=False)  # 關聯到 AnalyzedPost 表
+    platform = Column(String(50), nullable=False)
+    original_post_id = Column(String(255), nullable=False)
+    ai_score = Column(Float)  # AI給的評分
+    human_score = Column(Float, nullable=False)  # 人工評分
+    feedback_reason = Column(Text)  # 人工評分的原因/解釋
+    feedback_category = Column(String(100))  # 反饋分類
+    reviewer_notes = Column(Text)  # 審核者備註
+    created_at = Column(DateTime, default=datetime.utcnow)
+    prompt_version_id = Column(Integer)  # 使用的prompt版本
+    
+    def __repr__(self):
+        return f"<HumanFeedback(id={self.id}, ai_score={self.ai_score}, human_score={self.human_score})>"
+
+class PromptVersion(Base):
+    __tablename__ = 'prompt_versions'
+    
+    id = Column(Integer, primary_key=True)
+    version_name = Column(String(100), nullable=False)  # 版本名稱
+    prompt_type = Column(String(50), nullable=False)  # importance, summary, repost
+    prompt_content = Column(Text, nullable=False)  # prompt內容
+    description = Column(Text)  # 版本描述/改動說明
+    is_active = Column(Boolean, default=False)  # 是否為當前使用版本
+    created_at = Column(DateTime, default=datetime.utcnow)
+    performance_score = Column(Float)  # 根據feedback計算的性能評分
+    total_feedbacks = Column(Integer, default=0)  # 總反饋次數
+    avg_accuracy = Column(Float)  # 平均準確性
+    
+    def __repr__(self):
+        return f"<PromptVersion(id={self.id}, version='{self.version_name}', type='{self.prompt_type}')>"
+
 class DatabaseManager:
     def __init__(self, database_url: str = None):
         self.database_url = database_url or DATABASE_URL
@@ -136,7 +171,7 @@ class DatabaseManager:
                     # 更新現有記錄
                     existing.display_name = account_data.get('display_name', existing.display_name)
                     existing.category = account_data.get('category', existing.category)
-                    existing.priority = account_data.get('priority', existing.priority)
+                    # 移除priority更新
                     existing.active = account_data.get('active', existing.active)
                     existing.updated_at = datetime.utcnow()
                 else:
@@ -146,7 +181,7 @@ class DatabaseManager:
                         username=account_data['username'],
                         display_name=account_data.get('display_name'),
                         category=account_data.get('category'),
-                        priority=account_data.get('priority', 'medium'),
+                        # 移除priority設定
                         active=account_data.get('active', True)
                     )
                     session.add(account)
@@ -248,7 +283,7 @@ class DatabaseManager:
                     'username': acc.username,
                     'display_name': acc.display_name,
                     'category': acc.category,
-                    'priority': acc.priority
+                    # 移除priority回傳
                 }
                 for acc in accounts
             ]
@@ -276,6 +311,149 @@ class DatabaseManager:
         except Exception as e:
             session.rollback()
             logger.error(f"Failed to save processing log: {e}")
+        finally:
+            session.close()
+    
+    def save_human_feedback(self, feedback_data: dict):
+        """保存人工反饋"""
+        session = self.get_session()
+        try:
+            feedback = HumanFeedback(
+                analyzed_post_id=feedback_data['analyzed_post_id'],
+                platform=feedback_data['platform'],
+                original_post_id=feedback_data['original_post_id'],
+                ai_score=feedback_data.get('ai_score'),
+                human_score=feedback_data['human_score'],
+                feedback_reason=feedback_data.get('feedback_reason'),
+                feedback_category=feedback_data.get('feedback_category'),
+                reviewer_notes=feedback_data.get('reviewer_notes'),
+                prompt_version_id=feedback_data.get('prompt_version_id')
+            )
+            session.add(feedback)
+            session.commit()
+            logger.info(f"Saved human feedback for post {feedback_data['original_post_id']}")
+            return feedback.id
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to save human feedback: {e}")
+            raise
+        finally:
+            session.close()
+    
+    def get_posts_for_review(self, limit: int = 20, score_range: tuple = None):
+        """獲取需要審核的posts"""
+        session = self.get_session()
+        try:
+            # 獲取還沒有人工反饋的分析結果
+            query = session.query(AnalyzedPost).outerjoin(
+                HumanFeedback, 
+                AnalyzedPost.id == HumanFeedback.analyzed_post_id
+            ).filter(HumanFeedback.id == None)  # 沒有反饋的
+            
+            # 如果指定了評分範圍
+            if score_range:
+                min_score, max_score = score_range
+                if min_score is not None:
+                    query = query.filter(AnalyzedPost.importance_score >= min_score)
+                if max_score is not None:
+                    query = query.filter(AnalyzedPost.importance_score <= max_score)
+            
+            posts = query.order_by(AnalyzedPost.analyzed_at.desc()).limit(limit).all()
+            return posts
+            
+        except Exception as e:
+            logger.error(f"Failed to get posts for review: {e}")
+            return []
+        finally:
+            session.close()
+    
+    def save_prompt_version(self, version_data: dict):
+        """保存prompt版本"""
+        session = self.get_session()
+        try:
+            # 如果設為活躍版本，先將其他同類型版本設為非活躍
+            if version_data.get('is_active', False):
+                session.query(PromptVersion).filter_by(
+                    prompt_type=version_data['prompt_type'],
+                    is_active=True
+                ).update({'is_active': False})
+            
+            prompt_version = PromptVersion(
+                version_name=version_data['version_name'],
+                prompt_type=version_data['prompt_type'],
+                prompt_content=version_data['prompt_content'],
+                description=version_data.get('description'),
+                is_active=version_data.get('is_active', False)
+            )
+            session.add(prompt_version)
+            session.commit()
+            logger.info(f"Saved prompt version {version_data['version_name']}")
+            return prompt_version.id
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to save prompt version: {e}")
+            raise
+        finally:
+            session.close()
+    
+    def get_active_prompt(self, prompt_type: str):
+        """獲取當前活躍的prompt"""
+        session = self.get_session()
+        try:
+            prompt = session.query(PromptVersion).filter_by(
+                prompt_type=prompt_type,
+                is_active=True
+            ).first()
+            return prompt
+            
+        except Exception as e:
+            logger.error(f"Failed to get active prompt: {e}")
+            return None
+        finally:
+            session.close()
+    
+    def get_feedback_statistics(self):
+        """獲取反饋統計信息"""
+        session = self.get_session()
+        try:
+            from sqlalchemy import func
+            
+            # 總反饋數
+            total_feedback = session.query(HumanFeedback).count()
+            
+            # 平均差異
+            avg_diff_query = session.query(
+                func.avg(func.abs(HumanFeedback.ai_score - HumanFeedback.human_score)).label('avg_diff')
+            ).first()
+            
+            avg_difference = avg_diff_query.avg_diff if avg_diff_query.avg_diff else 0
+            
+            # 準確性分析（差異在1分以內算準確）
+            accurate_count = session.query(HumanFeedback).filter(
+                func.abs(HumanFeedback.ai_score - HumanFeedback.human_score) <= 1.0
+            ).count()
+            
+            accuracy_rate = (accurate_count / total_feedback * 100) if total_feedback > 0 else 0
+            
+            # 按分類統計
+            category_stats = session.query(
+                HumanFeedback.feedback_category,
+                func.count(HumanFeedback.id).label('count')
+            ).group_by(HumanFeedback.feedback_category).all()
+            
+            return {
+                'total_feedback': total_feedback,
+                'avg_difference': avg_difference,
+                'accuracy_rate': accuracy_rate,
+                'accurate_count': accurate_count,
+                'category_stats': dict(category_stats) if category_stats else {}
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get feedback statistics: {e}")
+            return {}
         finally:
             session.close()
 

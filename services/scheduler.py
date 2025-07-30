@@ -116,28 +116,7 @@ class SocialMediaScheduler:
         except Exception as e:
             logger.error(f"Failed to add daily collection job: {e}")
     
-    def add_hourly_monitoring_job(self):
-        """添加每小時監控任務（用於高頻監控重要帳號）"""
-        try:
-            job_id = 'hourly_monitoring'
-            
-            if self.scheduler.get_job(job_id):
-                self.scheduler.remove_job(job_id)
-            
-            self.scheduler.add_job(
-                func=self._execute_priority_monitoring,
-                trigger=IntervalTrigger(hours=1),
-                id=job_id,
-                name='Hourly Priority Monitoring',
-                replace_existing=True,
-                coalesce=True,
-                max_instances=1
-            )
-            
-            logger.info("Hourly monitoring job added")
-            
-        except Exception as e:
-            logger.error(f"Failed to add hourly monitoring job: {e}")
+    # 移除每小時監控功能 - 統一為每日收集
     
     def add_manual_job(self, delay_minutes: int = 0, job_type: str = 'full_collection'):
         """添加手動執行的一次性任務"""
@@ -148,8 +127,7 @@ class SocialMediaScheduler:
             
             if job_type == 'full_collection':
                 func = self._execute_daily_collection
-            elif job_type == 'priority_only':
-                func = self._execute_priority_monitoring
+            # 移除 priority_only 選項
             elif job_type == 'twitter_only':
                 func = lambda: self._execute_platform_collection('twitter')
             elif job_type == 'linkedin_only':
@@ -212,39 +190,7 @@ class SocialMediaScheduler:
                 details={'error': str(e)}
             )
     
-    def _execute_priority_monitoring(self):
-        """執行優先帳號監控"""
-        try:
-            logger.info("Starting priority account monitoring")
-            
-            # 獲取優先級為 'high' 的帳號
-            session = db_manager.get_session()
-            from models.database import Account
-            
-            priority_accounts = session.query(Account).filter_by(
-                active=True,
-                priority='high'
-            ).all()
-            
-            session.close()
-            
-            if not priority_accounts:
-                logger.info("No high priority accounts found")
-                return
-            
-            # 對每個優先帳號執行收集
-            total_posts = 0
-            for account in priority_accounts:
-                try:
-                    result = self.post_collector.collect_posts_by_platform(account.platform)
-                    total_posts += result.get('posts_collected', 0)
-                except Exception as e:
-                    logger.error(f"Error monitoring {account.platform}/@{account.username}: {e}")
-            
-            logger.info(f"Priority monitoring completed, collected {total_posts} posts")
-            
-        except Exception as e:
-            logger.error(f"Error in priority monitoring: {e}")
+    # 移除優先級監控功能 - 統一為每日收集
     
     def _execute_platform_collection(self, platform: str):
         """執行特定平台的收集"""
