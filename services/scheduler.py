@@ -99,7 +99,7 @@ class SocialMediaScheduler:
             
             # 添加每日定時任務
             self.scheduler.add_job(
-                func=self._execute_daily_collection,
+                func=execute_daily_collection_job,
                 trigger=CronTrigger(
                     hour=COLLECTION_SCHEDULE_HOUR,
                     minute=COLLECTION_SCHEDULE_MINUTE
@@ -274,6 +274,49 @@ class SocialMediaScheduler:
                 self.stop()
         else:
             logger.error("Cannot run in blocking mode: scheduler is in background mode")
+
+# 獨立的作業執行函數（避免序列化問題）
+def execute_daily_collection_job():
+    """執行每日完整收集任務的獨立函數"""
+    try:
+        logger.info("Starting daily post collection")
+        start_time = datetime.utcnow()
+        
+        # 記錄任務開始
+        db_manager.log_processing(
+            level='INFO',
+            message='Daily collection task started',
+            details={'start_time': start_time.isoformat()}
+        )
+        
+        # 創建收集器並執行收集
+        from services.post_collector import PostCollector
+        collector = PostCollector()
+        results = collector.collect_all_posts()
+        
+        end_time = datetime.utcnow()
+        duration = (end_time - start_time).total_seconds()
+        
+        # 記錄任務完成
+        db_manager.log_processing(
+            level='INFO',
+            message='Daily collection task completed',
+            details={
+                'duration_seconds': duration,
+                'results': results
+            }
+        )
+        
+        logger.info(f"Daily collection completed in {duration:.1f} seconds")
+        logger.info(f"Results: {results}")
+        
+    except Exception as e:
+        logger.error(f"Error in daily collection: {e}")
+        db_manager.log_processing(
+            level='ERROR',
+            message='Daily collection task failed',
+            details={'error': str(e)}
+        )
 
 # 全局調度器實例
 global_scheduler = None
