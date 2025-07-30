@@ -7,8 +7,9 @@
 - 🔍 **多平台支持**: 支持 X (Twitter) 和 LinkedIn 數據收集
 - 📊 **Google Sheets 整合**: 從 Google Sheets 讀取追蹤列表，結果自動寫回
 - 🤖 **AI 驅動分析**: 使用 OpenAI 或 Anthropic API 進行重要性評分、內容摘要和轉發內容生成
-- ⏰ **定時任務**: 支持每日自動收集和優先帳號監控
+- ⏰ **定時任務**: 支持每日自動收集
 - 💾 **數據持久化**: 使用 SQLAlchemy 進行數據存儲和管理
+- 🎯 **智能優化**: 基於人工反饋自動優化 AI 評分準確性
 - 🎛️ **靈活配置**: 所有 AI prompts 和系統參數都可以通過配置文件調整
 
 ## 系統架構
@@ -27,15 +28,50 @@
 │   └── database.py            # 數據庫模型和管理
 ├── config.py                  # 配置管理
 ├── main.py                    # 主程序
+├── prompt_optimizer.py        # AI Prompt 優化工具
+├── sync_database_to_sheets.py # 數據庫同步工具
 └── requirements.txt           # 依賴包
 ```
+
+## 核心工作流程
+
+1. **每日收集**: `main.py` 自動收集社交媒體貼文
+2. **AI 分析**: 系統使用 AI 評分貼文重要性（1-10分）
+3. **數據存儲**: 結果同時寫入數據庫和 Google Sheets
+4. **人工反饋**: 在 Google Sheets 中提供評分和文字反饋
+5. **智能優化**: `prompt_optimizer.py` 分析反饋並自動優化 AI prompt
+
+## Google Sheets 工作表說明
+
+### 1. Accounts (輸入帳號列表)
+- `platform`: 平台名稱 (twitter/linkedin)
+- `username`: 用戶名
+- `display_name`: 顯示名稱
+- `category`: 分類
+- `priority`: 優先級 (high/medium/low)
+- `active`: 是否啟用 (true/false)
+
+### 2. Analyzed Posts (重要貼文結果)
+系統篩選出的重要貼文（評分 ≥ 8 分），包含：
+- 時間、平台、發文者、原始內容
+- 摘要內容、重要性評分、轉發內容
+- 原始貼文URL、收集時間、分類
+
+### 3. All Posts & AI Scores (完整評分數據)
+所有貼文及其 AI 評分，支持人工反饋：
+- 收集時間、平台、發文者、內容
+- AI重要性評分、人工評分、評分差異
+- **文字反饋**（用於優化 AI）
+
+### 4. Prompt Optimization History (優化歷史)
+記錄 AI prompt 的優化過程和版本變更
 
 ## 安裝和設置
 
 ### 1. 環境準備
 
 ```bash
-# 克隆或下載項目
+# 進入項目目錄
 cd "Mafia socia media tracking"
 
 # 安裝依賴
@@ -44,14 +80,21 @@ pip install -r requirements.txt
 
 ### 2. 配置環境變量
 
+創建 `.env` 文件並配置以下 API 密鑰：
 ```bash
-# 複製配置文件模板
-cp .env.example .env
+# Google Sheets 服務帳號路徑
+GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH=credentials/service-account.json
 
-# 編輯 .env 文件，配置以下API密鑰：
-# - GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH
-# - X_API_BEARER_TOKEN
-# - AI_API_KEY (OpenAI 或 Anthropic)
+# X (Twitter) API
+X_API_BEARER_TOKEN=your_twitter_bearer_token
+
+# AI API (選擇其一)
+AI_API_TYPE=openai
+AI_API_KEY=your_openai_api_key
+
+# 或使用 Anthropic
+# AI_API_TYPE=anthropic
+# AI_API_KEY=your_anthropic_api_key
 ```
 
 ### 3. Google Sheets API 設置
@@ -62,97 +105,45 @@ cp .env.example .env
 4. 將憑證文件放在 `credentials/` 目錄
 5. 與目標 Google Sheets 共享服務帳號的郵箱地址
 
-### 4. 社交媒體 API 設置
-
-#### X (Twitter) API
-1. 在 [Twitter Developer Portal](https://developer.twitter.com/) 申請 API 訪問
-2. 獲取 Bearer Token
-3. 配置到 `.env` 文件
-
-#### LinkedIn API
-LinkedIn API 訪問受限，建議使用第三方服務如：
-- ScrapFly
-- Bright Data
-- Apify
-
-### 5. AI API 設置
-
-支持 OpenAI 和 Anthropic API：
-
-```bash
-# OpenAI
-AI_API_TYPE=openai
-AI_API_KEY=your_openai_api_key
-
-# 或 Anthropic
-AI_API_TYPE=anthropic  
-AI_API_KEY=your_anthropic_api_key
-```
-
 ## 使用方法
 
-### 基本命令
+### 主要命令
 
 ```bash
-# 測試系統連接
-python main.py --test
-
 # 手動執行一次完整收集
 python main.py --run-once
 
-# 啟動定時任務調度器
+# 啟動定時任務調度器（每日自動執行）
 python main.py --start-scheduler
 
 # 只收集特定平台數據
 python main.py --platform twitter
-python main.py --platform linkedin
 
 # 查看統計信息
 python main.py --stats
 
-# 查看幫助
-python main.py --help
+# 同步數據庫到 Google Sheets
+python sync_database_to_sheets.py
+
+# 分析人工反饋並優化 AI prompt
+python prompt_optimizer.py --analyze
+python prompt_optimizer.py --optimize --auto
 ```
 
-### Google Sheets 格式
+### Prompt 優化工作流程
 
-#### 輸入表格 (帳號列表)
-需要包含以下欄位：
-- `platform`: 平台名稱 (twitter/linkedin)
-- `username`: 用戶名
-- `display_name`: 顯示名稱
-- `category`: 分類
-- `priority`: 優先級 (high/medium/low)
-- `active`: 是否啟用 (true/false)
+1. **提供反饋**: 在 "All Posts & AI Scores" 工作表中添加人工評分和文字反饋
+2. **分析反饋**: `python prompt_optimizer.py --analyze`
+3. **自動優化**: `python prompt_optimizer.py --optimize --auto`
+4. **應用更新**: 優化後的 prompt 會自動更新到系統配置
 
-#### 輸出表格 (分析結果)
-系統會自動創建包含以下欄位的結果表：
-- 時間、平台、發文者、原始內容
-- 摘要內容、重要性評分、轉發內容
-- 原始貼文URL、收集時間、分類、狀態
+## 系統配置
 
-## 配置選項
-
-### AI Prompts 自定義
-
-在 `.env` 文件中可以自定義 AI 分析的提示詞：
+### 重要參數
 
 ```bash
-# 重要性篩選提示詞
-IMPORTANCE_FILTER_PROMPT="你的自定義提示詞..."
-
-# 摘要生成提示詞  
-SUMMARIZATION_PROMPT="你的自定義提示詞..."
-
-# 轉發內容生成提示詞
-REPOST_GENERATION_PROMPT="你的自定義提示詞..."
-```
-
-### 系統參數
-
-```bash
-# 重要性篩選閾值 (1-10)
-IMPORTANCE_THRESHOLD=6
+# 重要性篩選閾值（只有 ≥ 此分數的貼文會進入 Analyzed Posts）
+IMPORTANCE_THRESHOLD=8
 
 # 定時任務時間
 COLLECTION_SCHEDULE_HOUR=9
@@ -162,61 +153,28 @@ COLLECTION_SCHEDULE_MINUTE=0
 LOG_LEVEL=INFO
 ```
 
-## 定時任務
+### AI Prompt 自定義
 
-系統支持以下定時任務：
+系統的 AI 分析行為可以通過修改 `config.py` 中的 prompt 進行調整：
+- `IMPORTANCE_FILTER_PROMPT`: 重要性評分標準
+- `SUMMARIZATION_PROMPT`: 摘要生成方式
+- `REPOST_GENERATION_PROMPT`: 轉發內容風格
 
-- **每日收集**: 每天指定時間執行完整的貼文收集和分析
-- **優先監控**: 每小時檢查高優先級帳號的新貼文
-- **手動任務**: 支持一次性手動執行任務
+## 監控和維護
 
-## 數據流程
+### 日常操作
 
-1. **帳號同步**: 從 Google Sheets 讀取追蹤帳號列表
-2. **貼文收集**: 使用各平台 API 獲取最新貼文
-3. **去重處理**: 避免重複處理相同貼文
-4. **AI 分析**: 
-   - 重要性評分 (1-10)
-   - 內容摘要生成
-   - 轉發內容創建
-5. **數據存儲**: 保存到本地數據庫
-6. **結果輸出**: 重要貼文寫入 Google Sheets
+1. **查看收集結果**: 檢查 "Analyzed Posts" 工作表中的重要貼文
+2. **提供反饋**: 在 "All Posts & AI Scores" 中對 AI 評分提供人工反饋
+3. **優化系統**: 定期執行 prompt 優化以提高準確性
+4. **檢查日誌**: 查看 `logs/social_media_tracker.log` 了解系統狀態
 
-## 監控和日誌
-
-- 系統運行日誌保存在 `logs/` 目錄
-- 數據庫記錄處理過程和錯誤信息
-- 支持查看實時統計信息
-
-## 故障排除
-
-### 常見問題
+### 故障排除
 
 1. **API 限制**: 各平台都有 API 調用限制，系統已實現速率控制
-2. **LinkedIn 訪問**: LinkedIn API 限制較嚴，建議使用第三方服務
-3. **AI API 錯誤**: 檢查 API 密鑰和餘額，系統有重試機制
-4. **Google Sheets 權限**: 確保服務帳號有表格的編輯權限
-
-### 調試模式
-
-```bash
-# 設置調試級別日誌
-export LOG_LEVEL=DEBUG
-python main.py --test
-```
-
-## 擴展開發
-
-系統採用模組化設計，可以輕鬆擴展：
-
-- 添加新的社交媒體平台支持
-- 自定義 AI 分析邏輯
-- 整合更多輸出格式
-- 添加新的監控和警報功能
-
-## 授權
-
-本項目僅供學習和研究使用。使用時請遵守各平台的服務條款和 API 使用政策。
+2. **AI API 錯誤**: 檢查 API 密鑰和餘額
+3. **Google Sheets 權限**: 確保服務帳號有表格的編輯權限
+4. **數據同步問題**: 使用 `sync_database_to_sheets.py` 手動同步
 
 ## 技術支持
 
@@ -225,3 +183,7 @@ python main.py --test
 2. 網路連接是否正常
 3. 相關服務是否有餘額或權限
 4. 查看日誌文件獲取詳細錯誤信息
+
+## 授權
+
+本項目僅供內部使用。使用時請遵守各平台的服務條款和 API 使用政策。

@@ -116,6 +116,12 @@ class PostCollector:
                     if not success:
                         results['errors'].append("Failed to write results to Google Sheets")
                 
+                # 10. 將所有分析過的貼文寫入All Posts工作表
+                if analyzed_posts:
+                    all_success = self.sheets_client.write_all_posts_with_scores(analyzed_posts)
+                    if not all_success:
+                        results['errors'].append("Failed to write all posts to Google Sheets")
+                
                 logger.info(f"Processing complete: {len(analyzed_posts)} posts analyzed, {len(important_posts)} important posts")
             
         except Exception as e:
@@ -227,6 +233,10 @@ class PostCollector:
                 # 寫入Google Sheets
                 if important_posts:
                     self.sheets_client.write_analyzed_posts(important_posts)
+                
+                # 同時寫入所有分析過的貼文到All Posts工作表
+                if analyzed_posts:
+                    self.sheets_client.write_all_posts_with_scores(analyzed_posts)
         
         except Exception as e:
             error_msg = f"Error in platform collection for {platform}: {e}"

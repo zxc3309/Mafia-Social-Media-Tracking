@@ -70,7 +70,7 @@ class XClient:
                 tweets_response = self.client.get_users_tweets(
                     id=user_id,
                     max_results=10,  # 大幅減少數量，與測試腳本一致
-                    exclude=['retweets']  # 排除轉推，只要原創內容
+                    exclude=['retweets', 'replies']  # 排除轉推和回覆，只要原創內容
                 )
                 tweets = tweets_response.data if tweets_response.data else []
                 logger.info(f"Retrieved {len(tweets)} tweets for {username}")

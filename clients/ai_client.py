@@ -43,7 +43,9 @@ class AIClient:
         """
         分析貼文重要性，返回1-10的評分
         """
-        prompt = IMPORTANCE_FILTER_PROMPT.format(post_content=post_content)
+        # 優先從數據庫獲取活躍的prompt版本
+        prompt_template = self._get_active_importance_prompt()
+        prompt = prompt_template.format(post_content=post_content)
         
         for attempt in range(max_retries):
             try:
@@ -208,6 +210,25 @@ class AIClient:
             return 2.0
         
         return None
+    
+    def _get_active_importance_prompt(self) -> str:
+        """獲取活躍的重要性分析prompt"""
+        try:
+            from models.database import db_manager
+            
+            # 嘗試從數據庫獲取活躍的prompt
+            active_prompt = db_manager.get_active_prompt('importance')
+            
+            if active_prompt and active_prompt.prompt_content:
+                logger.info(f"Using active prompt version: {active_prompt.version_name}")
+                return active_prompt.prompt_content
+            else:
+                logger.info("No active prompt version found, using default from config")
+                return IMPORTANCE_FILTER_PROMPT
+                
+        except Exception as e:
+            logger.warning(f"Failed to get active prompt from database: {e}, using default")
+            return IMPORTANCE_FILTER_PROMPT
     
     def batch_analyze(self, posts: list, batch_size: int = 5) -> list:
         """

@@ -16,6 +16,10 @@ OUTPUT_SPREADSHEET_NAME = os.getenv("OUTPUT_SPREADSHEET_NAME", "Social Media Tra
 INPUT_WORKSHEET_NAME = os.getenv("INPUT_WORKSHEET_NAME", "Accounts")
 OUTPUT_WORKSHEET_NAME = os.getenv("OUTPUT_WORKSHEET_NAME", "Analyzed Posts")
 
+# 新增的工作表配置
+ALL_POSTS_WORKSHEET_NAME = os.getenv("ALL_POSTS_WORKSHEET_NAME", "All Posts & AI Scores")
+PROMPT_HISTORY_WORKSHEET_NAME = os.getenv("PROMPT_HISTORY_WORKSHEET_NAME", "Prompt Optimization History")
+
 # 數據庫配置
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///social_media_tracking.db")
 
@@ -32,16 +36,22 @@ IMPORTANCE_FILTER_PROMPT = os.getenv("IMPORTANCE_FILTER_PROMPT", """
 - 有洞見的行業趨勢或市場動態：6-8分
 - 個人觀點或日常分享：1-4分
 
-請只回答數字分數，不需要解釋。
+貼文內容：
+
+AI建議注意事項：
+1. 確保內容原創性和深度。
+2. 考慮產品發表對評分影響。
+3. 評分應反映對產業的理解。
+4. 注意不僅回應文章，也要提供獨特見解。
 
 貼文內容：
 {post_content}
 
 重要性評分：
-""")
+
 
 SUMMARIZATION_PROMPT = os.getenv("SUMMARIZATION_PROMPT", """
-請將以下社交媒體貼文內容摘要為簡潔的中文，重點突出關鍵信息：
+請將以下社交媒體貼文內容摘要為簡潔英文，重點突出關鍵信息：
 
 原始內容：
 {post_content}
@@ -53,8 +63,8 @@ REPOST_GENERATION_PROMPT = os.getenv("REPOST_GENERATION_PROMPT", """
 基於以下內容，生成一個適合在社交媒體轉發的貼文，要求：
 1. 保持原意但用自己的話表達
 2. 增加適當的觀點或評論
-3. 使用吸引人的語調
-4. 長度控制在280字以內
+3. 發文者是VC，所以需要用VC的視角來寫
+4. 長度控制在100字以內
 
 原始內容：
 {post_content}
@@ -70,7 +80,7 @@ PLATFORMS = {
         "posts_per_request": 100
     },
     "linkedin": {
-        "enabled": False,  # 暫時禁用 LinkedIn
+        "enabled": True,
         "rate_limit_per_day": 1000,
         "posts_per_request": 50
     }
