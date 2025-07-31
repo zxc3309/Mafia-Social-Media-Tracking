@@ -285,6 +285,53 @@ def start_review_system():
         print(f"啟動審核系統失敗: {e}")
         return False
 
+def show_api_stats():
+    """顯示API使用統計"""
+    logger = logging.getLogger(__name__)
+    
+    try:
+        print("\n=== API 使用統計 (過去24小時) ===")
+        
+        # Twitter API 統計
+        twitter_stats = db_manager.get_api_usage_stats('twitter', hours=24)
+        if twitter_stats:
+            print(f"\n🐦 Twitter API:")
+            print(f"  總調用次數: {twitter_stats['total_calls']}")
+            print(f"  成功調用次數: {twitter_stats['successful_calls']}")
+            print(f"  失敗調用次數: {twitter_stats['failed_calls']}")
+            print(f"  平均響應時間: {twitter_stats['avg_response_time']:.0f}ms")
+            
+            if twitter_stats['endpoints']:
+                print(f"\n  按端點統計:")
+                for endpoint, stats in twitter_stats['endpoints'].items():
+                    success_rate = (stats['successful'] / stats['total'] * 100) if stats['total'] > 0 else 0
+                    print(f"    {endpoint}: {stats['total']} 次 (成功率 {success_rate:.1f}%)")
+        
+        # 整體統計
+        overall_stats = db_manager.get_api_usage_stats(hours=24)
+        if overall_stats:
+            print(f"\n📊 整體統計:")
+            print(f"  總API調用: {overall_stats['total_calls']}")
+            success_rate = (overall_stats['successful_calls'] / overall_stats['total_calls'] * 100) if overall_stats['total_calls'] > 0 else 0
+            print(f"  成功率: {success_rate:.1f}%")
+        
+        # Twitter 用戶緩存統計
+        session = db_manager.get_session()
+        try:
+            from models.database import TwitterUserCache
+            cache_count = session.query(TwitterUserCache).count()
+            print(f"\n💾 緩存統計:")
+            print(f"  Twitter 用戶緩存數量: {cache_count}")
+        finally:
+            session.close()
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to show API stats: {e}")
+        print(f"顯示API統計失敗: {e}")
+        return False
+
 def optimize_ai_prompt():
     """優化AI分析prompt"""
     logger = logging.getLogger(__name__)
@@ -339,6 +386,7 @@ def main():
   python main.py --platform twitter      # 只收集Twitter數據
   python main.py --platform linkedin     # 只收集LinkedIn數據
   python main.py --stats                 # 查看統計信息
+  python main.py --api-stats             # 查看API使用統計
   python main.py --test                  # 測試系統連接
   python main.py --view-data             # 查看數據庫內容和AI評分
   python main.py --review                # 人工審核AI評分系統
@@ -351,6 +399,7 @@ def main():
     group.add_argument('--start-scheduler', action='store_true', help='啟動定時任務調度器')
     group.add_argument('--platform', choices=['twitter', 'linkedin'], help='只收集指定平台的數據')
     group.add_argument('--stats', action='store_true', help='顯示統計信息')
+    group.add_argument('--api-stats', action='store_true', help='查看API使用統計')
     group.add_argument('--test', action='store_true', help='測試系統連接')
     group.add_argument('--view-data', action='store_true', help='查看數據庫內容和AI評分')
     group.add_argument('--review', action='store_true', help='人工審核AI評分系統')
@@ -381,6 +430,10 @@ def main():
             
         elif args.stats:
             success = show_stats()
+            return 0 if success else 1
+            
+        elif getattr(args, 'api_stats', False):
+            success = show_api_stats()
             return 0 if success else 1
             
         elif args.test:

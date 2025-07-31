@@ -120,6 +120,38 @@ class PromptVersion(Base):
     def __repr__(self):
         return f"<PromptVersion(id={self.id}, version='{self.version_name}', type='{self.prompt_type}')>"
 
+class TwitterUserCache(Base):
+    __tablename__ = 'twitter_user_cache'
+    
+    id = Column(Integer, primary_key=True)
+    username = Column(String(255), nullable=False, unique=True)
+    user_id = Column(String(255), nullable=False)
+    display_name = Column(String(255))
+    followers_count = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    expires_at = Column(DateTime)  # 緩存過期時間
+    
+    def __repr__(self):
+        return f"<TwitterUserCache(username='{self.username}', user_id='{self.user_id}')>"
+
+class APIUsageLog(Base):
+    __tablename__ = 'api_usage_logs'
+    
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    platform = Column(String(50), nullable=False)  # twitter, linkedin
+    endpoint = Column(String(100), nullable=False)  # get_user, get_users_tweets
+    username = Column(String(255))  # 相關的用戶名
+    success = Column(Boolean, default=True)
+    error_message = Column(Text)
+    rate_limit_remaining = Column(Integer)  # 剩餘配額
+    rate_limit_reset = Column(DateTime)  # 重置時間
+    response_time_ms = Column(Integer)  # 響應時間
+    
+    def __repr__(self):
+        return f"<APIUsageLog(platform='{self.platform}', endpoint='{self.endpoint}', success={self.success})>"
+
 class DatabaseManager:
     def __init__(self, database_url: str = None):
         self.database_url = database_url or DATABASE_URL
@@ -453,6 +485,144 @@ class DatabaseManager:
             
         except Exception as e:
             logger.error(f"Failed to get feedback statistics: {e}")
+            return {}
+        finally:
+            session.close()
+    
+    def get_twitter_user_cache(self, username: str):
+        """獲取 Twitter 用戶緩存"""
+        session = self.get_session()
+        try:
+            from datetime import datetime
+            now = datetime.utcnow()
+            
+            cache = session.query(TwitterUserCache).filter_by(username=username).first()
+            
+            # 檢查緩存是否過期
+            if cache and cache.expires_at and cache.expires_at > now:
+                return {
+                    'user_id': cache.user_id,
+                    'display_name': cache.display_name,
+                    'followers_count': cache.followers_count
+                }
+            elif cache and cache.expires_at and cache.expires_at <= now:
+                # 緩存過期，刪除
+                session.delete(cache)
+                session.commit()
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get Twitter user cache: {e}")
+            return None
+        finally:
+            session.close()
+    
+    def save_twitter_user_cache(self, username: str, user_data: dict, cache_days: int = 30):
+        """保存 Twitter 用戶緩存"""
+        session = self.get_session()
+        try:
+            from datetime import datetime, timedelta
+            
+            # 檢查是否已存在
+            existing = session.query(TwitterUserCache).filter_by(username=username).first()
+            
+            expires_at = datetime.utcnow() + timedelta(days=cache_days)
+            
+            if existing:
+                # 更新現有記錄
+                existing.user_id = user_data['user_id']
+                existing.display_name = user_data.get('display_name')
+                existing.followers_count = user_data.get('followers_count')
+                existing.updated_at = datetime.utcnow()
+                existing.expires_at = expires_at
+            else:
+                # 創建新記錄
+                cache = TwitterUserCache(
+                    username=username,
+                    user_id=user_data['user_id'],
+                    display_name=user_data.get('display_name'),
+                    followers_count=user_data.get('followers_count'),
+                    expires_at=expires_at
+                )
+                session.add(cache)
+            
+            session.commit()
+            logger.info(f"Saved Twitter user cache for {username}")
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to save Twitter user cache: {e}")
+        finally:
+            session.close()
+    
+    def log_api_usage(self, platform: str, endpoint: str, username: str = None, 
+                     success: bool = True, error_message: str = None,
+                     rate_limit_remaining: int = None, rate_limit_reset = None,
+                     response_time_ms: int = None):
+        """記錄 API 使用情況"""
+        session = self.get_session()
+        try:
+            usage_log = APIUsageLog(
+                platform=platform,
+                endpoint=endpoint,
+                username=username,
+                success=success,
+                error_message=error_message,
+                rate_limit_remaining=rate_limit_remaining,
+                rate_limit_reset=rate_limit_reset,
+                response_time_ms=response_time_ms
+            )
+            session.add(usage_log)
+            session.commit()
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to log API usage: {e}")
+        finally:
+            session.close()
+    
+    def get_api_usage_stats(self, platform: str = None, hours: int = 24):
+        """獲取 API 使用統計"""
+        session = self.get_session()
+        try:
+            from datetime import datetime, timedelta
+            from sqlalchemy import func
+            
+            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            
+            query = session.query(APIUsageLog).filter(APIUsageLog.timestamp >= cutoff_time)
+            if platform:
+                query = query.filter(APIUsageLog.platform == platform)
+            
+            logs = query.all()
+            
+            stats = {
+                'total_calls': len(logs),
+                'successful_calls': len([log for log in logs if log.success]),
+                'failed_calls': len([log for log in logs if not log.success]),
+                'endpoints': {},
+                'avg_response_time': 0
+            }
+            
+            # 按端點統計
+            for endpoint_name in set(log.endpoint for log in logs):
+                endpoint_logs = [log for log in logs if log.endpoint == endpoint_name]
+                stats['endpoints'][endpoint_name] = {
+                    'total': len(endpoint_logs),
+                    'successful': len([log for log in endpoint_logs if log.success]),
+                    'failed': len([log for log in endpoint_logs if not log.success])
+                }
+            
+            # 平均響應時間
+            response_times = [log.response_time_ms for log in logs if log.response_time_ms]
+            if response_times:
+                stats['avg_response_time'] = sum(response_times) / len(response_times)
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to get API usage stats: {e}")
             return {}
         finally:
             session.close()

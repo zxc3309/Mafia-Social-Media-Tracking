@@ -75,7 +75,10 @@ PLATFORMS = {
     "twitter": {
         "enabled": True,
         "rate_limit_per_15min": 450,
-        "posts_per_request": 100
+        "posts_per_request": 10,  # 減少每次請求的推文數量
+        "max_retries": 3,
+        "request_delay_seconds": 1.0,  # 請求間隔
+        "cache_days": 30  # 用戶信息緩存天數
     },
     "linkedin": {
         "enabled": True,

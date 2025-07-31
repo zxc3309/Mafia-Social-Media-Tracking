@@ -4,13 +4,18 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
 from config import X_API_BEARER_TOKEN, PLATFORMS
+from models.database import db_manager
 
 logger = logging.getLogger(__name__)
 
 class XClient:
     def __init__(self):
         self.client = None
-        self.user_cache = {}  # 緩存用戶信息 {username: {id, name}}
+        twitter_config = PLATFORMS.get('twitter', {})
+        rate_limit = twitter_config.get('rate_limit_per_15min', 450)
+        self.rate_limiter = RateLimiter(requests_per_window=rate_limit, window_minutes=15)
+        self.request_delay = twitter_config.get('request_delay_seconds', 1.0)
+        self.max_results = twitter_config.get('posts_per_request', 10)
         self._initialize_client()
     
     def _initialize_client(self):
@@ -20,7 +25,7 @@ class XClient:
             
             self.client = tweepy.Client(
                 bearer_token=X_API_BEARER_TOKEN,
-                wait_on_rate_limit=False  # 不要無限等待，立即失敗
+                wait_on_rate_limit=True  # 自動等待 rate limit 重置
             )
             
             logger.info("X (Twitter) API client initialized successfully")
@@ -31,55 +36,138 @@ class XClient:
     def get_user_tweets(self, username: str, days_back: int = 1) -> List[Dict[str, Any]]:
         """獲取指定用戶的最近貼文"""
         posts = []
+        start_time = time.time()
         
         try:
             # 移除 @ 符號如果存在
             username = username.lstrip('@')
             
-            # 步驟1: 獲取用戶信息（使用緩存）
-            if username in self.user_cache:
-                user_id = self.user_cache[username]['id']
-                user_display_name = self.user_cache[username]['name']
+            # 步驟1: 獲取用戶信息（使用持久化緩存）
+            cached_user = db_manager.get_twitter_user_cache(username)
+            
+            if cached_user:
+                user_id = cached_user['user_id']
+                user_display_name = cached_user['display_name']
                 logger.info(f"Using cached info for {username} (ID: {user_id})")
             else:
+                # 需要從 API 獲取用戶信息
+                self.rate_limiter.wait_if_needed()
+                time.sleep(self.request_delay)  # 添加請求間隔
+                
                 try:
+                    api_start = time.time()
                     user = self.client.get_user(username=username)
+                    api_time = int((time.time() - api_start) * 1000)
+                    
                     if not user.data:
                         logger.warning(f"User {username} not found")
+                        db_manager.log_api_usage(
+                            platform='twitter', 
+                            endpoint='get_user',
+                            username=username,
+                            success=False,
+                            error_message='User not found',
+                            response_time_ms=api_time
+                        )
                         return posts
                     
-                    user_id = user.data.id
+                    user_id = str(user.data.id)
                     user_display_name = user.data.name
                     
-                    # 緩存用戶信息
-                    self.user_cache[username] = {
-                        'id': user_id,
-                        'name': user_display_name
+                    # 保存到持久化緩存
+                    user_data = {
+                        'user_id': user_id,
+                        'display_name': user_display_name,
+                        'followers_count': user.data.public_metrics.get('followers_count', 0) if user.data.public_metrics else 0
                     }
+                    db_manager.save_twitter_user_cache(username, user_data)
+                    
+                    # 記錄 API 使用
+                    db_manager.log_api_usage(
+                        platform='twitter',
+                        endpoint='get_user',
+                        username=username,
+                        success=True,
+                        response_time_ms=api_time
+                    )
+                    
                     logger.info(f"Found and cached user {username} with ID {user_id}")
                     
-                except tweepy.TooManyRequests:
-                    logger.error(f"Rate limit reached when getting user info for {username}")
+                except tweepy.TooManyRequests as e:
+                    error_msg = f"Rate limit reached when getting user info for {username}"
+                    logger.error(error_msg)
+                    db_manager.log_api_usage(
+                        platform='twitter',
+                        endpoint='get_user',
+                        username=username,
+                        success=False,
+                        error_message=error_msg
+                    )
                     return posts
                 except Exception as e:
-                    logger.error(f"Failed to get user info for {username}: {e}")
+                    error_msg = f"Failed to get user info for {username}: {e}"
+                    logger.error(error_msg)
+                    db_manager.log_api_usage(
+                        platform='twitter',
+                        endpoint='get_user',
+                        username=username,
+                        success=False,
+                        error_message=str(e)
+                    )
                     return posts
             
-            # 步驟2: 獲取推文 - 使用與測試腳本相同的簡單邏輯
+            # 步驟2: 獲取推文
+            self.rate_limiter.wait_if_needed()
+            time.sleep(self.request_delay)  # 添加請求間隔
+            
             try:
+                api_start = time.time()
                 tweets_response = self.client.get_users_tweets(
                     id=user_id,
-                    max_results=10,  # 大幅減少數量，與測試腳本一致
-                    exclude=['retweets', 'replies']  # 排除轉推和回覆，只要原創內容
+                    max_results=self.max_results,  # 使用配置的數量
+                    exclude=['retweets', 'replies'],  # 排除轉推和回覆，只要原創內容
+                    tweet_fields=['created_at', 'public_metrics', 'lang', 'in_reply_to_user_id', 'referenced_tweets'],
+                    expansions=['referenced_tweets.id']  # 展開引用推文資訊以進行額外過濾
                 )
-                tweets = tweets_response.data if tweets_response.data else []
-                logger.info(f"Retrieved {len(tweets)} tweets for {username}")
+                api_time = int((time.time() - api_start) * 1000)
                 
-            except tweepy.TooManyRequests:
-                logger.error(f"Rate limit reached when getting tweets for {username}")
+                raw_tweets = tweets_response.data if tweets_response.data else []
+                logger.info(f"Retrieved {len(raw_tweets)} raw tweets for {username}")
+                
+                # 手動過濾 replies（因為 API exclude 參數不完全有效）
+                tweets = self._filter_replies(raw_tweets, username)
+                logger.info(f"After filtering replies: {len(tweets)} original tweets for {username}")
+                
+                # 記錄成功的API調用
+                db_manager.log_api_usage(
+                    platform='twitter',
+                    endpoint='get_users_tweets',
+                    username=username,
+                    success=True,
+                    response_time_ms=api_time
+                )
+                
+            except tweepy.TooManyRequests as e:
+                error_msg = f"Rate limit reached when getting tweets for {username}"
+                logger.error(error_msg)
+                db_manager.log_api_usage(
+                    platform='twitter',
+                    endpoint='get_users_tweets',
+                    username=username,
+                    success=False,
+                    error_message=error_msg
+                )
                 return posts
             except Exception as e:
-                logger.error(f"Failed to get tweets for {username}: {e}")
+                error_msg = f"Failed to get tweets for {username}: {e}"
+                logger.error(error_msg)
+                db_manager.log_api_usage(
+                    platform='twitter',
+                    endpoint='get_users_tweets',
+                    username=username,
+                    success=False,
+                    error_message=str(e)
+                )
                 tweets = []
             
             for tweet in tweets:
@@ -196,6 +284,38 @@ class XClient:
         except Exception as e:
             logger.error(f"Error getting user info for {username}: {e}")
             return None
+    
+    def _filter_replies(self, tweets, username):
+        """手動過濾 replies，因為 API exclude 參數不完全有效"""
+        filtered_tweets = []
+        
+        for tweet in tweets:
+            is_reply = False
+            
+            # 方法 1: 檢查 in_reply_to_user_id
+            if hasattr(tweet, 'in_reply_to_user_id') and tweet.in_reply_to_user_id:
+                is_reply = True
+                logger.debug(f"Filtered reply tweet {tweet.id} (in_reply_to_user_id: {tweet.in_reply_to_user_id})")
+            
+            # 方法 2: 檢查 referenced_tweets 中是否有 replied_to 類型
+            if hasattr(tweet, 'referenced_tweets') and tweet.referenced_tweets:
+                for ref_tweet in tweet.referenced_tweets:
+                    if ref_tweet.type == 'replied_to':
+                        is_reply = True
+                        logger.debug(f"Filtered reply tweet {tweet.id} (referenced_tweets.type: replied_to)")
+                        break
+            
+            # 方法 3: 檢查推文文本是否以 @username 開頭（常見的回覆模式）
+            if tweet.text and tweet.text.strip().startswith('@'):
+                is_reply = True
+                logger.debug(f"Filtered reply tweet {tweet.id} (starts with @mention)")
+            
+            if not is_reply:
+                filtered_tweets.append(tweet)
+            else:
+                logger.info(f"Filtered out reply tweet from @{username}: {tweet.text[:50]}...")
+        
+        return filtered_tweets
 
 
 class RateLimiter:
