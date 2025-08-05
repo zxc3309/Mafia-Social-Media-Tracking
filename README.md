@@ -5,6 +5,8 @@
 ## 功能特點
 
 - 🔍 **多平台支持**: 支持 X (Twitter) 和 LinkedIn 數據收集
+- 🆓 **免費優先**: 優先使用免費的 Nitter 服務，無需 API 金鑰
+- 🔄 **智能切換**: 自動在 Nitter → Scraper → API 間切換，確保穩定收集
 - 📊 **Google Sheets 整合**: 從 Google Sheets 讀取追蹤列表，結果自動寫回
 - 🤖 **AI 驅動分析**: 使用 OpenAI 或 Anthropic API 進行重要性評分、內容摘要和轉發內容生成
 - ⏰ **定時任務**: 支持每日自動收集
@@ -18,7 +20,9 @@
 社交媒體追蹤系統/
 ├── clients/                    # API 客戶端
 │   ├── google_sheets_client.py # Google Sheets API
+│   ├── nitter_client.py       # Nitter (免費 Twitter 前端)
 │   ├── x_client.py            # X (Twitter) API
+│   ├── x_scraper_client.py    # X 網頁爬蟲客戶端
 │   ├── linkedin_client.py     # LinkedIn API
 │   └── ai_client.py           # AI 分析服務
 ├── services/                  # 業務邏輯
@@ -80,22 +84,31 @@ pip install -r requirements.txt
 
 ### 2. 配置環境變量
 
-創建 `.env` 文件並配置以下 API 密鑰：
+創建 `.env` 文件並配置以下設置：
+
 ```bash
 # Google Sheets 服務帳號路徑
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH=credentials/service-account.json
 
-# X (Twitter) API
-X_API_BEARER_TOKEN=your_twitter_bearer_token
+# Twitter 客戶端優先順序（推薦保持預設值）
+TWITTER_CLIENT_PRIORITY=nitter,scraper,api
 
-# AI API (選擇其一)
+# AI API (必需)
 AI_API_TYPE=openai
 AI_API_KEY=your_openai_api_key
 
-# 或使用 Anthropic
-# AI_API_TYPE=anthropic
-# AI_API_KEY=your_anthropic_api_key
+# X (Twitter) API (可選，作為最後備案)
+X_API_BEARER_TOKEN=your_twitter_bearer_token
+
+# X 爬蟲配置 (可選，當 Nitter 不可用時使用)
+USE_X_SCRAPER=false
+X_SCRAPER_ACCOUNTS=username1:password1,username2:password2
 ```
+
+**注意**: 
+- 系統現在優先使用免費的 Nitter 服務，通常無需配置 Twitter API
+- 只有在 Nitter 不可用且需要爬蟲功能時才需要配置爬蟲帳號
+- Twitter API 作為最後的備用方案
 
 ### 3. Google Sheets API 設置
 
@@ -104,6 +117,45 @@ AI_API_KEY=your_openai_api_key
 3. 創建服務帳號並下載 JSON 憑證文件
 4. 將憑證文件放在 `credentials/` 目錄
 5. 與目標 Google Sheets 共享服務帳號的郵箱地址
+
+## Twitter 數據收集方式
+
+系統支援三種 Twitter 數據收集方式，並按以下優先順序自動選擇：
+
+### 1. 🆓 Nitter (首選 - 免費)
+- **優點**: 完全免費、無需帳號、不會被封鎖、零風險
+- **缺點**: 依賴公開 Nitter 實例的可用性
+- **適用**: 大多數使用場景，推薦作為首選
+
+### 2. 🕷️ 網頁爬蟲 (備用)
+- **優點**: 不依賴官方 API、成本較低
+- **缺點**: 需要 Twitter 帳號、可能被封鎖、需要維護
+- **適用**: 當 Nitter 不可用且不想使用 API 時
+
+### 3. 📡 官方 API (最後備案)
+- **優點**: 最穩定可靠、官方支持
+- **缺點**: 有嚴格的速率限制、需要付費（免費額度很低）
+- **適用**: 需要最高穩定性的生產環境
+
+### 自動切換邏輯
+```
+1. 嘗試 Nitter → 檢測可用實例 → 成功則使用
+2. Nitter 失敗 → 檢查爬蟲配置 → 有配置則使用爬蟲
+3. 爬蟲失敗/未配置 → 使用 Twitter API (需要有效的 Bearer Token)
+```
+
+### 自定義優先順序
+可通過 `TWITTER_CLIENT_PRIORITY` 環境變量自定義：
+```bash
+# 預設順序
+TWITTER_CLIENT_PRIORITY=nitter,scraper,api
+
+# 只使用 API (跳過免費方案)
+TWITTER_CLIENT_PRIORITY=api
+
+# 爬蟲優先 (不推薦)
+TWITTER_CLIENT_PRIORITY=scraper,nitter,api
+```
 
 ## 使用方法
 
@@ -171,10 +223,25 @@ LOG_LEVEL=INFO
 
 ### 故障排除
 
-1. **API 限制**: 各平台都有 API 調用限制，系統已實現速率控制
-2. **AI API 錯誤**: 檢查 API 密鑰和餘額
-3. **Google Sheets 權限**: 確保服務帳號有表格的編輯權限
-4. **數據同步問題**: 使用 `sync_database_to_sheets.py` 手動同步
+#### Twitter 數據收集問題
+1. **Nitter 無法使用**: 
+   - 檢查網路連接
+   - 系統會自動嘗試其他 Nitter 實例
+   - 可手動更新 `NITTER_INSTANCES` 環境變量
+
+2. **爬蟲被封鎖**: 
+   - 檢查爬蟲帳號狀態
+   - 調整 `SCRAPER_MIN_DELAY` 和 `SCRAPER_MAX_DELAY` 增加延遲
+   - 考慮使用代理 (`SCRAPER_PROXY_ENABLED=true`)
+
+3. **API 限制**: 
+   - 檢查 Twitter API 配額和餘額
+   - 調整 `posts_per_request` 和 `request_delay_seconds`
+
+#### 其他常見問題
+4. **AI API 錯誤**: 檢查 API 密鑰和餘額
+5. **Google Sheets 權限**: 確保服務帳號有表格的編輯權限
+6. **數據同步問題**: 使用 `sync_database_to_sheets.py` 手動同步
 
 ## 技術支持
 

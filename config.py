@@ -70,6 +70,10 @@ REPOST_GENERATION_PROMPT = os.getenv("REPOST_GENERATION_PROMPT", """
 轉發內容：
 """)
 
+# Twitter 客戶端優先順序配置
+# 可選值: "nitter", "scraper", "api"
+TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "nitter,scraper,api").split(",")
+
 # 平台配置
 PLATFORMS = {
     "twitter": {
@@ -86,6 +90,45 @@ PLATFORMS = {
         "posts_per_request": 50
     }
 }
+
+# Web Scraper 配置
+SCRAPER_CONFIG = {
+    "use_scraper": os.getenv("USE_X_SCRAPER", "false").lower() == "true",  # 是否使用爬蟲而非API
+    "headless": os.getenv("SCRAPER_HEADLESS", "true").lower() == "true",  # 是否使用無頭瀏覽器
+    "min_delay": float(os.getenv("SCRAPER_MIN_DELAY", "3")),  # 最小延遲（秒）
+    "max_delay": float(os.getenv("SCRAPER_MAX_DELAY", "10")),  # 最大延遲（秒）
+    "daily_limit": int(os.getenv("SCRAPER_DAILY_LIMIT", "500")),  # 每日抓取限制
+    "proxy_enabled": os.getenv("SCRAPER_PROXY_ENABLED", "false").lower() == "true",
+    "proxy_list": os.getenv("SCRAPER_PROXY_LIST", "").split(","),  # 代理列表，逗號分隔
+    "user_agents_file": os.getenv("SCRAPER_USER_AGENTS_FILE", "user_agents.txt"),
+    "cookies_dir": os.getenv("SCRAPER_COOKIES_DIR", "scraper_cookies"),  # Cookie存儲目錄
+    "accounts": []  # 將在運行時從環境變量加載
+}
+
+# 加載爬蟲帳號配置
+if os.getenv("X_SCRAPER_ACCOUNTS"):
+    # 格式: username1:password1,username2:password2
+    accounts_str = os.getenv("X_SCRAPER_ACCOUNTS", "")
+    for account in accounts_str.split(","):
+        if ":" in account:
+            username, password = account.split(":", 1)
+            SCRAPER_CONFIG["accounts"].append({
+                "username": username.strip(),
+                "password": password.strip()
+            })
+
+# Nitter 實例配置（備用方案）
+default_nitter_instances = [
+    "https://twitt.re",
+    "https://xcancel.com",
+    "https://nitter.poast.org",
+    "https://nitter.privacydev.net",
+    "https://nitter.pek.li",
+    "https://nitter.aishiteiru.moe",
+    "https://nitter.aosus.link",
+    "https://nitter.dashy.a3x.dn.nyx.im"
+]
+NITTER_INSTANCES = os.getenv("NITTER_INSTANCES", ",".join(default_nitter_instances)).split(",") if os.getenv("NITTER_INSTANCES") else default_nitter_instances
 
 # 重要性篩選閾值
 IMPORTANCE_THRESHOLD = int(os.getenv("IMPORTANCE_THRESHOLD", "8"))

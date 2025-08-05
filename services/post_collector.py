@@ -6,7 +6,7 @@ from clients.x_client import XClient
 from clients.linkedin_client import LinkedInClient
 from clients.ai_client import AIClient
 from models.database import db_manager
-from config import PLATFORMS, IMPORTANCE_THRESHOLD
+from config import PLATFORMS, IMPORTANCE_THRESHOLD, SCRAPER_CONFIG, NITTER_INSTANCES, TWITTER_CLIENT_PRIORITY
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,7 @@ class PostCollector:
         """初始化社交媒體客戶端"""
         try:
             if PLATFORMS.get('twitter', {}).get('enabled'):
-                self.x_client = XClient()
-                logger.info("X (Twitter) client initialized")
+                self._initialize_twitter_client()
             
             if PLATFORMS.get('linkedin', {}).get('enabled'):
                 self.linkedin_client = LinkedInClient()
@@ -33,6 +32,78 @@ class PostCollector:
                 
         except Exception as e:
             logger.error(f"Error initializing social media clients: {e}")
+            
+    def _initialize_twitter_client(self):
+        """根據配置的優先順序初始化 Twitter 客戶端"""
+        logger.info(f"Twitter client priority order: {TWITTER_CLIENT_PRIORITY}")
+        
+        for client_type in TWITTER_CLIENT_PRIORITY:
+            client_type = client_type.strip().lower()
+            
+            try:
+                if client_type == "nitter":
+                    if self._try_nitter_client():
+                        return
+                elif client_type == "scraper":
+                    if self._try_scraper_client():
+                        return
+                elif client_type == "api":
+                    if self._try_api_client():
+                        return
+                else:
+                    logger.warning(f"Unknown client type: {client_type}")
+            except Exception as e:
+                logger.error(f"Failed to initialize {client_type} client: {e}")
+                continue
+        
+        # 如果所有客戶端都失敗，使用 API 作為最後備案
+        logger.error("All Twitter clients failed, using API as last resort")
+        self.x_client = XClient()
+        logger.info("X (Twitter) API client initialized (emergency fallback)")
+    
+    def _try_nitter_client(self) -> bool:
+        """嘗試初始化 Nitter 客戶端"""
+        if not NITTER_INSTANCES:
+            logger.info("No Nitter instances configured, skipping")
+            return False
+            
+        from clients.nitter_client import NitterClient
+        nitter_client = NitterClient()
+        if nitter_client.test_connection():
+            self.x_client = nitter_client
+            logger.info("✓ X (Twitter) Nitter client initialized successfully")
+            logger.info(f"Using {len(nitter_client.working_instances)} working Nitter instances")
+            return True
+        else:
+            logger.warning("✗ No working Nitter instances available")
+            return False
+    
+    def _try_scraper_client(self) -> bool:
+        """嘗試初始化 Scraper 客戶端"""
+        if not SCRAPER_CONFIG.get('use_scraper', False):
+            logger.info("Scraper not enabled in config, skipping")
+            return False
+            
+        if not SCRAPER_CONFIG.get('accounts'):
+            logger.warning("No scraper accounts configured, skipping")
+            return False
+            
+        from clients.x_scraper_client import XScraperClientSync
+        self.x_client = XScraperClientSync()
+        logger.info("✓ X (Twitter) scraper client initialized successfully")
+        logger.info(f"Using {len(SCRAPER_CONFIG.get('accounts', []))} scraper accounts")
+        return True
+    
+    def _try_api_client(self) -> bool:
+        """嘗試初始化 API 客戶端"""
+        from config import X_API_BEARER_TOKEN
+        if not X_API_BEARER_TOKEN:
+            logger.warning("No X API bearer token configured, skipping")
+            return False
+            
+        self.x_client = XClient()
+        logger.info("✓ X (Twitter) API client initialized successfully")
+        return True
     
     def collect_all_posts(self) -> Dict[str, Any]:
         """
@@ -140,7 +211,17 @@ class PostCollector:
         
         try:
             if platform in ['twitter', 'x'] and self.x_client:
+                # 記錄是否使用爬蟲
+                collection_method = 'scraper' if SCRAPER_CONFIG.get('use_scraper', False) else 'api'
+                logger.info(f"Collecting posts for @{username} using {collection_method}")
+                
                 posts = self.x_client.get_user_tweets(username, days_back=1)
+                
+                # 為爬蟲收集的貼文添加標記
+                if collection_method == 'scraper':
+                    for post in posts:
+                        post['collection_method'] = 'scraper'
+                        
             elif platform == 'linkedin' and self.linkedin_client:
                 posts = self.linkedin_client.get_user_posts(username, days_back=1)
             else:
