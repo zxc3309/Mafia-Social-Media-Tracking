@@ -50,20 +50,21 @@ class AIClient:
         for attempt in range(max_retries):
             try:
                 if self.api_type == "openai":
-                    response = self._call_openai(prompt, max_tokens=10)
+                    response = self._call_openai(prompt, max_tokens=50)
                 elif self.api_type == "anthropic":
-                    response = self._call_anthropic(prompt, max_tokens=10)
+                    response = self._call_anthropic(prompt, max_tokens=50)
                 else:
                     logger.error(f"Unsupported API type: {self.api_type}")
                     return None
                 
                 # 從回應中提取數字評分
+                logger.debug(f"AI response (length={len(response) if response else 0}): {response}")
                 score = self._extract_score(response)
                 if score is not None:
                     logger.debug(f"Importance score: {score} for content preview: {post_content[:50]}...")
                     return score
                 else:
-                    logger.warning(f"Could not extract score from response: {response}")
+                    logger.warning(f"Could not extract score from response (length={len(response) if response else 0}): {response}")
                     
             except Exception as e:
                 logger.error(f"Error analyzing importance (attempt {attempt + 1}): {e}")
