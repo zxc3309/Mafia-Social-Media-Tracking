@@ -407,8 +407,11 @@ def main():
     
     args = parser.parse_args()
     
-    # 檢查環境文件
-    if not os.path.exists('.env'):
+    # 檢查環境文件（雲端部署時通過環境變數配置，不需要 .env 文件）
+    # 檢查是否在雲端環境（Railway 會設定 DATABASE_URL 環境變數）
+    is_cloud_deployment = os.getenv('DATABASE_URL', '').startswith('postgres')
+    
+    if not os.path.exists('.env') and not is_cloud_deployment:
         print("警告: 未找到 .env 文件，請複製 .env.example 並配置相關API密鑰")
         print("執行: cp .env.example .env")
         return 1

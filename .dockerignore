@@ -23,6 +23,7 @@ coverage.xml
 
 # Local development files
 .env
+.env.example
 scheduler.pid
 scheduler.log
 logs/
