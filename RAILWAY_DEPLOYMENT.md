@@ -125,6 +125,12 @@ RAILWAY_ENVIRONMENT_ID=<your_environment_id>
 
 ### 常見問題
 
+1. **Nixpacks 構建失敗**
+   - 問題：`nix-env` 執行失敗
+   - 解決方案：項目已改用 Dockerfile 構建，避免 Nixpacks 相容性問題
+
+### 常見問題
+
 1. **Google Sheets 憑證錯誤**
    - 確保 base64 編碼正確
    - 檢查服務帳號是否有權限訪問指定的表格

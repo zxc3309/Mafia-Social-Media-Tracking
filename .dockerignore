@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.venv/
+
+# Local development files
+.env
+scheduler.pid
+scheduler.log
+logs/
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Documentation
+*.md
+CLAUDE.md
+README.md
+RAILWAY_DEPLOYMENT.md
+SCRAPER_README.md
+SAFER_SCRAPING_ALTERNATIVES.md
+SCRAPER_IMPLEMENTATION_SUMMARY.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
