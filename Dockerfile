@@ -33,5 +33,5 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
 
 # 運行數據庫遷移和應用程式
-# 使用 set -e 確保任何命令失敗都會停止執行
-CMD ["sh", "-c", "set -e && echo '🚀 Starting Railway deployment...' && python force_migration.py && echo '✅ Migration completed, starting main application...' && python main.py --run-once"]
+# 使用多重備用方案確保遷移成功
+CMD ["sh", "-c", "set -e && echo '🚀 Starting Railway deployment...' && echo '🔍 Debug info...' && python debug_railway.py || (echo '⚠️ Debug failed, continuing...') && echo '🔄 Attempting simple migration...' && python simple_migration.py && echo '✅ Migration completed, starting main application...' && python main.py --run-once || (echo '❌ Simple migration failed, trying nuclear option...' && python nuclear_migration.py && echo '✅ Nuclear migration completed, starting main application...' && python main.py --run-once)"]
