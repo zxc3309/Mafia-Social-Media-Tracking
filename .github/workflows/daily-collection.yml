@@ -12,23 +12,29 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Trigger Railway Deployment
+      - name: Install Railway CLI
         run: |
-          # 使用 Railway API 觸發部署
-          curl -X POST "https://backboard.railway.app/graphql" \
-            -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "query": "mutation deploymentCreate($input: DeploymentCreateInput!) { deploymentCreate(input: $input) { id } }",
-              "variables": {
-                "input": {
-                  "projectId": "${{ secrets.RAILWAY_PROJECT_ID }}",
-                  "environmentId": "${{ secrets.RAILWAY_ENVIRONMENT_ID }}"
-                }
-              }
-            }'
+          npm install -g @railway/cli
+          echo "Railway CLI installed successfully"
       
-      - name: Wait and Check Status
+      - name: Execute Collection via Railway CLI
         run: |
-          echo "Collection triggered at $(date)"
-          echo "Check Railway logs for execution status"
+          echo "🚀 Triggering data collection at $(date)"
+          # 使用 Railway CLI 直接執行收集任務
+          if [ -n "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
+            # 如果有 service ID，使用特定服務
+            railway run --token ${{ secrets.RAILWAY_TOKEN }} \
+                       --service ${{ secrets.RAILWAY_SERVICE_ID }} \
+                       python main.py --run-once
+          else
+            # 否則在項目環境中執行
+            railway run --token ${{ secrets.RAILWAY_TOKEN }} \
+                       --environment ${{ secrets.RAILWAY_ENVIRONMENT_ID }} \
+                       python main.py --run-once
+          fi
+          echo "✅ Collection task completed at $(date)"
+      
+      - name: Check Collection Status
+        run: |
+          echo "📊 Collection executed successfully"
+          echo "Please check Railway logs and Google Sheets for results"
