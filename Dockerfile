@@ -33,4 +33,5 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
 
 # 運行數據庫遷移和應用程式
-CMD ["sh", "-c", "python force_migration.py && python main.py --run-once"]
+# 使用 set -e 確保任何命令失敗都會停止執行
+CMD ["sh", "-c", "set -e && echo '🚀 Starting Railway deployment...' && python force_migration.py && echo '✅ Migration completed, starting main application...' && python main.py --run-once"]

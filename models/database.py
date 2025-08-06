@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import logging
+import os
 from config import DATABASE_URL
 
 logger = logging.getLogger(__name__)
@@ -168,8 +169,38 @@ class DatabaseManager:
                 pool_pre_ping=True
             )
             
-            # 創建所有表
-            Base.metadata.create_all(bind=self.engine)
+            # 檢查是否為 PostgreSQL 生產環境
+            is_postgres = self.database_url.startswith('postgres')
+            is_railway = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
+            
+            if is_postgres and is_railway:
+                # Railway PostgreSQL 環境：不要自動創建 analyzed_posts 表
+                # 這個表應該已經通過遷移腳本正確創建
+                logger.info("PostgreSQL production environment detected - checking existing tables")
+                
+                from sqlalchemy import inspect
+                inspector = inspect(self.engine)
+                existing_tables = inspector.get_table_names()
+                logger.info(f"Existing tables: {existing_tables}")
+                
+                # 只創建不存在的表，跳過 analyzed_posts
+                tables_to_create = []
+                for table_name, table in Base.metadata.tables.items():
+                    if table_name not in existing_tables:
+                        tables_to_create.append(table)
+                        logger.info(f"Will create missing table: {table_name}")
+                    else:
+                        logger.info(f"Table already exists, skipping: {table_name}")
+                
+                # 只創建缺失的表
+                if tables_to_create:
+                    for table in tables_to_create:
+                        table.create(bind=self.engine, checkfirst=True)
+                    logger.info(f"Created {len(tables_to_create)} missing tables")
+            else:
+                # 本地環境：正常創建所有表
+                logger.info("Local development environment - creating all tables")
+                Base.metadata.create_all(bind=self.engine)
             
             # 創建會話工廠
             self.SessionLocal = sessionmaker(
