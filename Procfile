@@ -1,1 +1,1 @@
-web: python main.py --run-once
+web: echo "🚀 Railway starting with Procfile..." && python debug_railway.py && echo "🔄 Running simple migration..." && python simple_migration.py && echo "✅ Migration completed, starting application..." && python main.py --run-once || (echo "❌ Simple migration failed, trying nuclear option..." && python nuclear_migration.py && echo "✅ Nuclear migration completed, starting application..." && python main.py --run-once)

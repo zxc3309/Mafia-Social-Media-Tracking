@@ -29,10 +29,76 @@ from datetime import datetime
 # 添加項目根目錄到Python路徑
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import LOG_LEVEL, LOG_FILE
+from config import LOG_LEVEL, LOG_FILE, DATABASE_URL
 from services.post_collector import PostCollector
 from services.scheduler import get_scheduler
 from models.database import db_manager
+
+def check_and_run_migration():
+    """檢查並運行數據庫遷移（啟動前安全檢查）"""
+    print("🔍 執行啟動前數據庫檢查...")
+    
+    # 只在 Railway PostgreSQL 環境執行
+    is_railway = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
+    is_postgres = DATABASE_URL.startswith('postgres')
+    
+    if not (is_railway and is_postgres):
+        print("✅ 本地環境，跳過遷移檢查")
+        return True
+    
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(DATABASE_URL)
+        
+        with engine.connect() as conn:
+            # 檢查 analyzed_posts 表的 post_id 字段類型
+            result = conn.execute(text("""
+                SELECT data_type FROM information_schema.columns 
+                WHERE table_name = 'analyzed_posts' AND column_name = 'post_id'
+            """))
+            
+            field_info = result.fetchone()
+            if field_info and field_info[0] == 'integer':
+                print("❌ 檢測到 post_id 為 INTEGER 類型，需要遷移！")
+                print("🚨 啟動緊急遷移程序...")
+                
+                # 嘗試簡單遷移
+                try:
+                    import subprocess
+                    result = subprocess.run([sys.executable, "simple_migration.py"], 
+                                          capture_output=True, text=True, timeout=60)
+                    if result.returncode == 0:
+                        print("✅ 緊急遷移成功")
+                        return True
+                    else:
+                        print(f"❌ 簡單遷移失敗: {result.stderr}")
+                        
+                        # 嘗試核心選項
+                        print("🚨 嘗試核心選項遷移...")
+                        result = subprocess.run([sys.executable, "nuclear_migration.py"], 
+                                              capture_output=True, text=True, timeout=120)
+                        if result.returncode == 0:
+                            print("✅ 核心選項遷移成功")
+                            return True
+                        else:
+                            print(f"❌ 核心選項遷移也失敗: {result.stderr}")
+                            return False
+                            
+                except Exception as e:
+                    print(f"❌ 遷移執行錯誤: {e}")
+                    return False
+                    
+            elif field_info and field_info[0] == 'character varying':
+                print("✅ post_id 字段類型正確 (VARCHAR)")
+                return True
+            else:
+                print(f"⚠️  post_id 字段狀態未知: {field_info}")
+                return True  # 繼續執行，讓程序自己處理
+                
+    except Exception as e:
+        print(f"❌ 數據庫檢查失敗: {e}")
+        # 數據庫檢查失敗時，繼續執行程序，讓後續錯誤處理機制處理
+        return True
 
 def setup_logging():
     """設置日誌"""
@@ -373,6 +439,11 @@ def optimize_ai_prompt():
 
 def main():
     """主函數"""
+    # 啟動前數據庫遷移檢查（雙重保險）
+    if not check_and_run_migration():
+        print("❌ 數據庫遷移檢查失敗，程序無法啟動")
+        return 1
+    
     setup_logging()
     logger = logging.getLogger(__name__)
     
