@@ -32,5 +32,5 @@ ENV PYTHONUNBUFFERED=1
 # 暴露端口（如果需要）
 EXPOSE 8080
 
-# 運行應用程式
-CMD ["python", "main.py", "--run-once"]
+# 運行數據庫遷移和應用程式
+CMD ["sh", "-c", "python migrate_database.py && python main.py --run-once"]

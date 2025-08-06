@@ -52,7 +52,7 @@ class AnalyzedPost(Base):
     __tablename__ = 'analyzed_posts'
     
     id = Column(Integer, primary_key=True)
-    post_id = Column(Integer, nullable=False)  # 關聯到 Post 表
+    post_id = Column(String(255), nullable=False)  # 貼文 ID 字符串
     platform = Column(String(50), nullable=False)
     original_post_id = Column(String(255), nullable=False)
     author_username = Column(String(255), nullable=False)
