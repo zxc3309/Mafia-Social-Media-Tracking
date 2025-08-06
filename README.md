@@ -182,6 +182,45 @@ python prompt_optimizer.py --analyze
 python prompt_optimizer.py --optimize --auto
 ```
 
+## Railway 雲端部署
+
+系統支援部署到 Railway 雲端平台，實現每天自動執行：
+
+### 🚀 快速部署
+
+1. **準備憑證**: 將 Google Service Account JSON 轉為 base64
+   ```bash
+   base64 -i credentials/service-account.json | tr -d '\n'
+   ```
+
+2. **Railway 部署**: 
+   - 前往 [Railway](https://railway.app)
+   - 選擇從 GitHub 部署此倉庫
+   - 添加 PostgreSQL 數據庫插件
+
+3. **配置環境變數**:
+   ```bash
+   GOOGLE_SHEETS_CREDENTIALS_BASE64=<base64編碼的憑證>
+   AI_API_KEY=<OpenAI或Anthropic API Key>
+   # 其他必要的API Keys...
+   ```
+
+4. **設定 GitHub Actions 定時執行**:
+   - 在 GitHub 倉庫設定 Railway API Token
+   - 系統會每天早上 9:00 CST 自動執行
+
+### 📋 詳細說明
+
+請參考 [Railway 部署指南](RAILWAY_DEPLOYMENT.md) 獲取完整的部署說明。
+
+### ✨ 雲端部署優勢
+
+- 🕘 **自動定時執行**: 每天 9:00 自動收集數據
+- 💾 **PostgreSQL 數據持久化**: 資料安全保存
+- 📊 **即時監控**: Railway 控制台查看執行狀態  
+- 🆓 **免費額度**: 每月 500 小時免費運行時間
+- 🔄 **自動重啟**: 失敗時自動重試
+
 ### Prompt 優化工作流程
 
 1. **提供反饋**: 在 "All Posts & AI Scores" 工作表中添加人工評分和文字反饋

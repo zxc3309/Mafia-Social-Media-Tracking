@@ -11,8 +11,8 @@ AI_API_KEY = os.getenv("AI_API_KEY")
 AI_API_TYPE = os.getenv("AI_API_TYPE", "openai")  # "openai" or "anthropic"
 
 # Google Sheets 配置
-INPUT_SPREADSHEET_NAME = os.getenv("INPUT_SPREADSHEET_NAME", "Social Media Tracking - Accounts")
-OUTPUT_SPREADSHEET_NAME = os.getenv("OUTPUT_SPREADSHEET_NAME", "Social Media Tracking - Results")
+INPUT_SPREADSHEET_NAME = os.getenv("INPUT_SPREADSHEET_NAME", "Social Media Tracking")
+OUTPUT_SPREADSHEET_NAME = os.getenv("OUTPUT_SPREADSHEET_NAME", "Social Media Tracking")
 INPUT_WORKSHEET_NAME = os.getenv("INPUT_WORKSHEET_NAME", "Accounts")
 OUTPUT_WORKSHEET_NAME = os.getenv("OUTPUT_WORKSHEET_NAME", "Analyzed Posts")
 
@@ -21,7 +21,14 @@ ALL_POSTS_WORKSHEET_NAME = os.getenv("ALL_POSTS_WORKSHEET_NAME", "All Posts & AI
 PROMPT_HISTORY_WORKSHEET_NAME = os.getenv("PROMPT_HISTORY_WORKSHEET_NAME", "Prompt Optimization History")
 
 # 數據庫配置
+# Railway 會自動提供 DATABASE_URL 環境變數
+# 本地開發時使用 SQLite，生產環境使用 PostgreSQL
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///social_media_tracking.db")
+
+# 如果是 PostgreSQL URL，確保使用正確的驅動
+if DATABASE_URL.startswith("postgres://"):
+    # Railway 提供的是 postgres://，但 SQLAlchemy 需要 postgresql://
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # 定時任務配置
 COLLECTION_SCHEDULE_HOUR = int(os.getenv("COLLECTION_SCHEDULE_HOUR", "9"))  # 每天上午9點執行

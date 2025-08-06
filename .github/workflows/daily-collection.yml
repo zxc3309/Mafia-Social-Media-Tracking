@@ -1,0 +1,34 @@
+name: Daily Social Media Collection
+
+on:
+  # 每天早上 9:00 CST (UTC 1:00)
+  schedule:
+    - cron: '0 1 * * *'
+  # 允許手動觸發
+  workflow_dispatch:
+
+jobs:
+  trigger-collection:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Trigger Railway Deployment
+        run: |
+          # 使用 Railway API 觸發部署
+          curl -X POST "https://backboard.railway.app/graphql" \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "query": "mutation deploymentCreate($input: DeploymentCreateInput!) { deploymentCreate(input: $input) { id } }",
+              "variables": {
+                "input": {
+                  "projectId": "${{ secrets.RAILWAY_PROJECT_ID }}",
+                  "environmentId": "${{ secrets.RAILWAY_ENVIRONMENT_ID }}"
+                }
+              }
+            }'
+      
+      - name: Wait and Check Status
+        run: |
+          echo "Collection triggered at $(date)"
+          echo "Check Railway logs for execution status"

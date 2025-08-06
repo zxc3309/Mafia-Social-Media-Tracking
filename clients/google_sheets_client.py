@@ -3,6 +3,9 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 from typing import List, Dict, Any
 import logging
+import os
+import json
+import base64
 from config import (
     GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH,
     INPUT_SPREADSHEET_NAME,
@@ -27,10 +30,36 @@ class GoogleSheetsClient:
                 'https://www.googleapis.com/auth/drive'
             ]
             
-            creds = Credentials.from_service_account_file(
-                GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH, 
-                scopes=scopes
-            )
+            # 優先從環境變數讀取憑證
+            google_creds_base64 = os.getenv('GOOGLE_SHEETS_CREDENTIALS_BASE64')
+            
+            if google_creds_base64:
+                # 從 base64 環境變數解碼憑證
+                try:
+                    creds_json = base64.b64decode(google_creds_base64).decode('utf-8')
+                    creds_dict = json.loads(creds_json)
+                    creds = Credentials.from_service_account_info(
+                        creds_dict,
+                        scopes=scopes
+                    )
+                    logger.info("Google Sheets credentials loaded from environment variable")
+                except Exception as e:
+                    logger.error(f"Failed to load credentials from environment variable: {e}")
+                    raise
+            else:
+                # 從文件讀取憑證（本地開發）
+                if os.path.exists(GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH):
+                    creds = Credentials.from_service_account_file(
+                        GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH, 
+                        scopes=scopes
+                    )
+                    logger.info("Google Sheets credentials loaded from file")
+                else:
+                    raise FileNotFoundError(
+                        f"Service account file not found at {GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH} "
+                        "and GOOGLE_SHEETS_CREDENTIALS_BASE64 environment variable not set"
+                    )
+            
             self.gc = gspread.authorize(creds)
             logger.info("Google Sheets client initialized successfully")
         except Exception as e:
