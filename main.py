@@ -408,13 +408,20 @@ def main():
     args = parser.parse_args()
     
     # 檢查環境文件（雲端部署時通過環境變數配置，不需要 .env 文件）
-    # 檢查是否在雲端環境（Railway 會設定 DATABASE_URL 環境變數）
-    is_cloud_deployment = os.getenv('DATABASE_URL', '').startswith('postgres')
+    # 檢查關鍵環境變數是否存在，如果存在則跳過 .env 文件檢查
+    has_required_env_vars = (
+        os.getenv('AI_API_KEY') or 
+        os.getenv('GOOGLE_SHEETS_CREDENTIALS_BASE64') or
+        os.getenv('DATABASE_URL', '').startswith('postgres')
+    )
     
-    if not os.path.exists('.env') and not is_cloud_deployment:
+    if not os.path.exists('.env') and not has_required_env_vars:
         print("警告: 未找到 .env 文件，請複製 .env.example 並配置相關API密鑰")
         print("執行: cp .env.example .env")
         return 1
+    
+    if has_required_env_vars:
+        print("✅ 檢測到雲端環境，使用環境變數配置")
     
     logger.info(f"Starting Social Media Tracker with args: {args}")
     

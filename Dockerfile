@@ -19,6 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 複製應用程式代碼
 COPY . .
 
+# 創建空的 .env 文件（雲端部署使用環境變數）
+RUN touch .env
+
 # 創建日誌目錄
 RUN mkdir -p logs
 
