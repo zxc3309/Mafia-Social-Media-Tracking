@@ -14,8 +14,9 @@ jobs:
     steps:
       - name: Install Railway CLI
         run: |
-          npm install -g @railway/cli
-          echo "Railway CLI installed successfully"
+          # 安裝特定版本的 Railway CLI 確保一致性
+          npm install -g @railway/cli@3.5.2
+          echo "Railway CLI version: $(railway --version)"
       
       - name: Execute Collection via Railway CLI
         env:

@@ -1,0 +1,49 @@
+name: Fallback Daily Collection
+
+on:
+  # 每天早上 9:00 CST (UTC 1:00) 
+  schedule:
+    - cron: '0 1 * * *'
+  # 允許手動觸發
+  workflow_dispatch:
+
+jobs:
+  trigger-via-api:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Trigger Railway via API
+        run: |
+          echo "🚀 使用 Railway API 觸發數據收集..."
+          
+          # 使用 curl 直接調用 Railway API
+          response=$(curl -s -X POST \
+            "https://backboard.railway.app/graphql/v2" \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "query": "mutation ($serviceId: String!, $command: String!) { serviceInstanceRunCommand(serviceId: $serviceId, command: $command) { id } }",
+              "variables": {
+                "serviceId": "${{ secrets.RAILWAY_SERVICE_ID }}",
+                "command": "python main.py --run-once"
+              }
+            }')
+          
+          echo "API Response: $response"
+          
+          if echo "$response" | grep -q "serviceInstanceRunCommand"; then
+            echo "✅ 成功觸發數據收集任務"
+          else
+            echo "❌ 觸發失敗，請檢查 Railway 日誌"
+            exit 1
+          fi
+      
+      - name: Alternative Method - Direct HTTP
+        if: failure()
+        run: |
+          echo "🔄 嘗試備用方法..."
+          
+          # 使用 webhook 或其他方式觸發
+          # 這裡可以添加其他備用觸發方法
+          
+          echo "📊 請檢查 Railway 日誌確認執行狀態"
