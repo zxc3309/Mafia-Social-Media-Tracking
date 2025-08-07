@@ -1,0 +1,40 @@
+name: Test Auto Schedule
+
+on:
+  # 每 30 分鐘執行一次（僅測試用）
+  schedule:
+    - cron: '*/30 * * * *'
+  # 也允許手動觸發
+  workflow_dispatch:
+
+jobs:
+  test-schedule:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Test Scheduled Execution
+        run: |
+          echo "🕒 自動排程測試執行於: $(date)"
+          echo "✅ GitHub Actions cron 正常工作！"
+          echo "📅 這個測試會每 30 分鐘執行一次"
+          
+      - name: Check Railway Connection
+        run: |
+          echo "🔌 測試 Railway 連接..."
+          if [ -n "${{ secrets.RAILWAY_TOKEN }}" ]; then
+            echo "✅ RAILWAY_TOKEN 已設定"
+          else
+            echo "❌ RAILWAY_TOKEN 未設定"
+          fi
+          
+          if [ -n "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
+            echo "✅ RAILWAY_SERVICE_ID 已設定: ${{ secrets.RAILWAY_SERVICE_ID }}"
+          else
+            echo "❌ RAILWAY_SERVICE_ID 未設定"
+          fi
+          
+      - name: Simulate Collection
+        run: |
+          echo "🤖 模擬數據收集..."
+          echo "如果看到這個訊息，表示自動排程正常工作！"
+          echo "測試完成後，記得刪除這個測試 workflow"
