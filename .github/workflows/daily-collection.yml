@@ -18,19 +18,17 @@ jobs:
           echo "Railway CLI installed successfully"
       
       - name: Execute Collection via Railway CLI
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           echo "🚀 Triggering data collection at $(date)"
           # 使用 Railway CLI 直接執行收集任務
           if [ -n "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
             # 如果有 service ID，使用特定服務
-            railway run --token ${{ secrets.RAILWAY_TOKEN }} \
-                       --service ${{ secrets.RAILWAY_SERVICE_ID }} \
-                       python main.py --run-once
+            railway run python main.py --run-once --service ${{ secrets.RAILWAY_SERVICE_ID }}
           else
             # 否則在項目環境中執行
-            railway run --token ${{ secrets.RAILWAY_TOKEN }} \
-                       --environment ${{ secrets.RAILWAY_ENVIRONMENT_ID }} \
-                       python main.py --run-once
+            railway run python main.py --run-once
           fi
           echo "✅ Collection task completed at $(date)"
       
