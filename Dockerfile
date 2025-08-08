@@ -32,5 +32,5 @@ ENV PYTHONUNBUFFERED=1
 # 暴露端口（如果需要）
 EXPOSE 8080
 
-# 運行應用程式
-CMD ["sh", "-c", "echo '🚀 Starting Railway deployment...' && echo '📊 Running data collection...' && python main.py --run-once && echo '✅ Collection completed successfully'"]
+# 運行Web服務器（持續運行模式）
+CMD ["sh", "-c", "echo '🚀 Starting Railway web service...' && echo '🌐 Starting web server with scheduler...' && python main.py --web-server"]

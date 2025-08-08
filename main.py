@@ -437,6 +437,48 @@ def optimize_ai_prompt():
         print(f"優化prompt失敗: {e}")
         return False
 
+def start_web_server():
+    """啟動Web服務器模式"""
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info("Starting web server mode...")
+        print("🌐 啟動Web服務器模式...")
+        
+        # Import and run the FastAPI application
+        import uvicorn
+        import os
+        from app import app
+        
+        # Get port from environment (Railway provides this)
+        port = int(os.getenv("PORT", 8080))
+        host = "0.0.0.0"
+        
+        print(f"🚀 服務器將在 {host}:{port} 啟動")
+        print("📋 可用端點:")
+        print("  - GET  /         - 健康檢查和基本信息")
+        print("  - GET  /status   - 詳細系統狀態")
+        print("  - POST /trigger  - 手動觸發收集")
+        print("  - GET  /health   - 健康檢查")
+        print(f"⏰ 每日自動收集時間: 09:00")
+        
+        logger.info(f"Web server starting on {host}:{port}")
+        
+        # Start the server
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="info"
+        )
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to start web server: {e}")
+        print(f"Web服務器啟動失敗: {e}")
+        return False
+
 def main():
     """主函數"""
     # 啟動前數據庫遷移檢查（雙重保險）
@@ -454,6 +496,7 @@ def main():
 使用範例:
   python main.py --run-once              # 手動執行一次完整收集
   python main.py --start-scheduler       # 啟動定時任務
+  python main.py --web-server            # 啟動Web服務器（推薦用於Railway）
   python main.py --platform twitter      # 只收集Twitter數據
   python main.py --platform linkedin     # 只收集LinkedIn數據
   python main.py --stats                 # 查看統計信息
@@ -468,6 +511,7 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--run-once', action='store_true', help='手動執行一次完整收集')
     group.add_argument('--start-scheduler', action='store_true', help='啟動定時任務調度器')
+    group.add_argument('--web-server', action='store_true', help='啟動Web服務器模式（用於Railway部署）')
     group.add_argument('--platform', choices=['twitter', 'linkedin'], help='只收集指定平台的數據')
     group.add_argument('--stats', action='store_true', help='顯示統計信息')
     group.add_argument('--api-stats', action='store_true', help='查看API使用統計')
@@ -503,6 +547,10 @@ def main():
             
         elif args.start_scheduler:
             start_scheduler()
+            return 0
+            
+        elif args.web_server:
+            start_web_server()
             return 0
             
         elif args.platform:
