@@ -34,40 +34,19 @@ jobs:
             exit 1
           fi
           
-          # 使用 Railway API v2 觸發服務重新部署
-          # 這會重新運行 Dockerfile 中的 CMD，執行 main.py --run-once
-          echo "📡 Triggering Railway service redeploy..."
+          # 方法1: 觸發 GitHub 重新部署（最可靠）
+          echo "📡 Method 1: Triggering deployment via GitHub webhook..."
           
-          response=$(curl -s -X POST \
-            "https://backboard.railway.app/graphql/v2" \
-            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"query\": \"mutation { deploymentRestart(id: \\\"${RAILWAY_SERVICE_ID}\\\") { id } }\"
-            }")
+          # Railway 會自動從 GitHub 拉取並重新部署
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+            -d '{"event_type":"trigger-railway-collection"}'
           
-          echo "API Response: $response"
-          
-          # 檢查響應是否包含錯誤
-          if echo "$response" | grep -q "errors"; then
-            echo "❌ API 調用失敗，嘗試替代方法..."
-            
-            # 替代方法：觸發新的部署
-            response=$(curl -s -X POST \
-              "https://backboard.railway.app/graphql/v2" \
-              -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"query\": \"mutation { deploymentTrigger(projectId: \\\"${RAILWAY_PROJECT_ID}\\\", environmentId: \\\"production\\\", serviceId: \\\"${RAILWAY_SERVICE_ID}\\\") { id } }\"
-              }")
-            
-            echo "Alternative API Response: $response"
-            
-            if echo "$response" | grep -q "errors"; then
-              echo "❌ 所有方法都失敗了"
-              exit 1
-            fi
-          fi
+          echo "✅ GitHub deployment trigger sent"
+          echo "⏰ Railway will pull and redeploy automatically"
+          echo "📊 Please check Railway logs in 1-2 minutes"
           
           echo "✅ 成功觸發 Railway 服務執行"
       

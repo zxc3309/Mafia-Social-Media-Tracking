@@ -1,0 +1,51 @@
+name: Railway Redeploy Trigger
+
+on:
+  # 每天早上 9:00 CST (UTC 1:00)
+  schedule:
+    - cron: '0 1 * * *'
+  # 允許手動觸發
+  workflow_dispatch:
+  # 允許從其他 workflow 觸發
+  repository_dispatch:
+    types: [trigger-railway-collection]
+
+jobs:
+  trigger-redeploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Make trivial change to trigger Railway
+        run: |
+          echo "🔄 Creating trivial change to trigger Railway redeploy..."
+          
+          # 創建或更新一個時間戳文件
+          echo "Last collection trigger: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > .railway-trigger
+          
+          # 配置 git
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # 提交變更
+          git add .railway-trigger
+          git commit -m "Trigger Railway collection at $(date -u '+%Y-%m-%d %H:%M:%S UTC')" || echo "No changes to commit"
+          
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+      
+      - name: Wait for Railway deployment
+        run: |
+          echo "✅ Changes pushed to GitHub"
+          echo "⏰ Railway will automatically detect the change and redeploy"
+          echo "📊 The collection will run as part of the deployment process"
+          echo ""
+          echo "Please check:"
+          echo "1. Railway dashboard for deployment status"
+          echo "2. Railway logs for collection execution"
+          echo "3. Google Sheets for new data"
