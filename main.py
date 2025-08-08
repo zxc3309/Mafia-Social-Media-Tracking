@@ -446,9 +446,14 @@ def start_web_server():
         print("🌐 啟動Web服務器模式...")
         
         # Import and run the FastAPI application
-        import uvicorn
         import os
-        from app import app
+        try:
+            import uvicorn
+            from app import app
+        except ImportError as e:
+            logger.error(f"Failed to import required modules: {e}")
+            print(f"❌ 導入模組失敗: {e}")
+            return False
         
         # Get port from environment (Railway provides this)
         port = int(os.getenv("PORT", 8080))
