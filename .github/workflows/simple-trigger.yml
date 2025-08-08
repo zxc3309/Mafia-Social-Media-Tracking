@@ -16,31 +16,24 @@ jobs:
         run: |
           echo "🚀 Triggering Railway deployment at $(date)"
           
-          # 使用 curl 觸發 Railway 部署 webhook
-          # Railway 會重新運行 Dockerfile，執行 main.py --run-once
+          # 直接使用 GitHub API 觸發 repository dispatch
+          # 這個方法第一次成功過
+          echo "📡 Sending deployment trigger via GitHub..."
           
-          # 方法 1: 使用 Railway Deployment Webhook (如果已設置)
-          if [ -n "${{ secrets.RAILWAY_WEBHOOK_URL }}" ]; then
-            echo "📡 Using Railway Webhook..."
-            curl -X POST "${{ secrets.RAILWAY_WEBHOOK_URL }}" \
-              -H "Content-Type: application/json" \
-              -d '{"trigger": "daily-collection"}'
-            echo "✅ Webhook triggered"
-          else
-            echo "⚠️ No webhook configured, using API method..."
-            
-            # 方法 2: 使用 GitHub API 觸發重新部署
-            # 這會觸發 Railway 從 GitHub 拉取最新代碼並重新部署
-            curl -X POST \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/dispatches" \
-              -d '{"event_type":"railway-deploy"}'
-            
-            echo "✅ Deployment trigger sent via GitHub"
-          fi
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+            -d '{"event_type":"trigger-railway-collection"}'
           
-          echo "📊 Check Railway logs for execution status"
+          echo "✅ GitHub dispatch event sent"
+          
+          # 給 Railway 一些時間來檢測變更
+          echo "⏰ Waiting for Railway to detect changes..."
+          sleep 5
+          
+          echo "📊 Deployment should start soon. Check Railway logs for status"
+          echo "💡 Note: Railway may take 1-2 minutes to start the deployment"
       
       - name: Alternative - Use Railway GraphQL API
         if: failure()
