@@ -1,0 +1,131 @@
+name: Test Railway Connection
+
+on:
+  # 允許手動觸發以測試連接
+  workflow_dispatch:
+
+jobs:
+  test-connection:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check GitHub Secrets
+        run: |
+          echo "🔍 檢查 GitHub Secrets 配置..."
+          
+          # 檢查必要的 secrets 是否存在（不會顯示實際值）
+          if [ -n "${{ secrets.RAILWAY_TOKEN }}" ]; then
+            echo "✅ RAILWAY_TOKEN is configured"
+          else
+            echo "❌ RAILWAY_TOKEN is NOT configured"
+          fi
+          
+          if [ -n "${{ secrets.RAILWAY_PROJECT_ID }}" ]; then
+            echo "✅ RAILWAY_PROJECT_ID is configured"
+          else
+            echo "❌ RAILWAY_PROJECT_ID is NOT configured"
+          fi
+          
+          if [ -n "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
+            echo "✅ RAILWAY_SERVICE_ID is configured"
+          else
+            echo "⚠️  RAILWAY_SERVICE_ID is NOT configured (optional)"
+          fi
+      
+      - name: Test Railway CLI Installation
+        run: |
+          echo "📦 安裝 Railway CLI..."
+          npm install -g @railway/cli@3.5.2
+          echo "✅ Railway CLI version: $(railway --version)"
+      
+      - name: Test Railway API Connection
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "🔗 測試 Railway API 連接..."
+          
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "❌ RAILWAY_TOKEN not found, skipping API test"
+            exit 1
+          fi
+          
+          # 測試 API 連接 - 獲取用戶信息
+          response=$(curl -s -X POST \
+            "https://backboard.railway.app/graphql/v2" \
+            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"query": "query { me { id email } }"}')
+          
+          echo "API Response: $response"
+          
+          if echo "$response" | grep -q "\"id\""; then
+            echo "✅ Railway API 連接成功"
+          else
+            echo "❌ Railway API 連接失敗"
+            exit 1
+          fi
+      
+      - name: Test Railway CLI Authentication
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "🔐 測試 Railway CLI 認證..."
+          
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$RAILWAY_PROJECT_ID" ]; then
+            echo "❌ Missing required environment variables"
+            exit 1
+          fi
+          
+          # 嘗試連接到項目
+          echo "📡 Linking to Railway project..."
+          railway link $RAILWAY_PROJECT_ID || {
+            echo "❌ Failed to link to Railway project"
+            exit 1
+          }
+          
+          echo "✅ Railway CLI 認證成功"
+      
+      - name: List Railway Services
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "📋 列出 Railway 服務..."
+          
+          # 使用 API 獲取項目服務列表
+          response=$(curl -s -X POST \
+            "https://backboard.railway.app/graphql/v2" \
+            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"query\": \"query { project(id: \\\"${RAILWAY_PROJECT_ID}\\\") { services { edges { node { id name } } } } }\"
+            }")
+          
+          echo "Services Response: $response"
+          
+          # 解析並顯示服務信息
+          if echo "$response" | grep -q "services"; then
+            echo "✅ 成功獲取服務列表"
+            echo "💡 提示：如果需要特定服務，請將服務 ID 設置為 RAILWAY_SERVICE_ID secret"
+          else
+            echo "⚠️  無法獲取服務列表，但這可能不影響執行"
+          fi
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "📊 === 測試摘要 ==="
+          echo ""
+          echo "如果所有測試都通過，您的 Railway 配置正確！"
+          echo ""
+          echo "下一步："
+          echo "1. 確保所有必要的 secrets 都已配置"
+          echo "2. 運行 'Daily Social Media Collection' workflow 進行實際測試"
+          echo "3. 檢查 Railway 日誌以確認執行成功"
+          echo ""
+          echo "必需的 GitHub Secrets:"
+          echo "  - RAILWAY_TOKEN: Railway API Token"
+          echo "  - RAILWAY_PROJECT_ID: Railway 項目 ID"
+          echo "  - RAILWAY_SERVICE_ID: Railway 服務 ID (可選但建議設置)"

@@ -23,14 +23,46 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           echo "🚀 Triggering data collection at $(date)"
-          # 使用 Railway CLI 直接執行收集任務
-          if [ -n "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
-            # 如果有 service ID，使用特定服務
-            railway run python main.py --run-once --service ${{ secrets.RAILWAY_SERVICE_ID }}
+          
+          # 調試：檢查環境變數
+          echo "📊 Debug: Checking environment variables..."
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "❌ Error: RAILWAY_TOKEN is not set in GitHub Secrets"
+            exit 1
           else
-            # 否則在項目環境中執行
-            railway run python main.py --run-once
+            echo "✅ RAILWAY_TOKEN is set (length: ${#RAILWAY_TOKEN})"
           fi
+          
+          # 設置 Railway 環境
+          export RAILWAY_TOKEN="${RAILWAY_TOKEN}"
+          
+          # 方法1: 使用 railway login 和 project link
+          echo "🔐 Method 1: Using railway login..."
+          railway login --browserless 2>/dev/null || echo "⚠️ Login command not available in this version"
+          
+          # 方法2: 直接使用 railway run with project flag
+          echo "🔄 Method 2: Direct execution with project flag..."
+          railway run \
+            --project "${{ secrets.RAILWAY_PROJECT_ID }}" \
+            --environment "production" \
+            --service "${{ secrets.RAILWAY_SERVICE_ID }}" \
+            -- python main.py --run-once \
+          || {
+            echo "❌ Method 2 failed, trying Method 3..."
+            
+            # 方法3: 使用 railway 命令而不帶 run
+            echo "🔄 Method 3: Using railway exec..."
+            railway exec \
+              --project "${{ secrets.RAILWAY_PROJECT_ID }}" \
+              --service "${{ secrets.RAILWAY_SERVICE_ID }}" \
+              python main.py --run-once
+          } || {
+            echo "❌ All Railway CLI methods failed"
+            echo "📝 Railway CLI may not support remote execution in GitHub Actions"
+            echo "💡 Please use the Fallback Collection workflow instead"
+            exit 1
+          }
+          
           echo "✅ Collection task completed at $(date)"
       
       - name: Check Collection Status

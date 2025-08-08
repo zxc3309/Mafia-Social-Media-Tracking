@@ -12,31 +12,64 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Trigger Railway via API
+      - name: Trigger Railway Deployment via API
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
         run: |
-          echo "🚀 使用 Railway API 觸發數據收集..."
+          echo "🚀 使用 Railway API 觸發部署重啟..."
           
-          # 使用 curl 直接調用 Railway API
+          # 驗證必要的環境變數
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "❌ Error: RAILWAY_TOKEN is not set"
+            exit 1
+          fi
+          if [ -z "$RAILWAY_PROJECT_ID" ]; then
+            echo "❌ Error: RAILWAY_PROJECT_ID is not set"
+            exit 1
+          fi
+          if [ -z "$RAILWAY_SERVICE_ID" ]; then
+            echo "❌ Error: RAILWAY_SERVICE_ID is not set"
+            exit 1
+          fi
+          
+          # 使用 Railway API v2 觸發服務重新部署
+          # 這會重新運行 Dockerfile 中的 CMD，執行 main.py --run-once
+          echo "📡 Triggering Railway service redeploy..."
+          
           response=$(curl -s -X POST \
             "https://backboard.railway.app/graphql/v2" \
-            -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}" \
+            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d '{
-              "query": "mutation ($serviceId: String!, $command: String!) { serviceInstanceRunCommand(serviceId: $serviceId, command: $command) { id } }",
-              "variables": {
-                "serviceId": "${{ secrets.RAILWAY_SERVICE_ID }}",
-                "command": "python main.py --run-once"
-              }
-            }')
+            -d "{
+              \"query\": \"mutation { deploymentRestart(id: \\\"${RAILWAY_SERVICE_ID}\\\") { id } }\"
+            }")
           
           echo "API Response: $response"
           
-          if echo "$response" | grep -q "serviceInstanceRunCommand"; then
-            echo "✅ 成功觸發數據收集任務"
-          else
-            echo "❌ 觸發失敗，請檢查 Railway 日誌"
-            exit 1
+          # 檢查響應是否包含錯誤
+          if echo "$response" | grep -q "errors"; then
+            echo "❌ API 調用失敗，嘗試替代方法..."
+            
+            # 替代方法：觸發新的部署
+            response=$(curl -s -X POST \
+              "https://backboard.railway.app/graphql/v2" \
+              -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"query\": \"mutation { deploymentTrigger(projectId: \\\"${RAILWAY_PROJECT_ID}\\\", environmentId: \\\"production\\\", serviceId: \\\"${RAILWAY_SERVICE_ID}\\\") { id } }\"
+              }")
+            
+            echo "Alternative API Response: $response"
+            
+            if echo "$response" | grep -q "errors"; then
+              echo "❌ 所有方法都失敗了"
+              exit 1
+            fi
           fi
+          
+          echo "✅ 成功觸發 Railway 服務執行"
       
       - name: Alternative Method - Direct HTTP
         if: failure()
