@@ -77,7 +77,8 @@ class AIClient:
         """
         摘要貼文內容
         """
-        prompt = SUMMARIZATION_PROMPT.format(post_content=post_content)
+        prompt_template = self._get_active_summarization_prompt()
+        prompt = prompt_template.format(post_content=post_content)
         
         for attempt in range(max_retries):
             try:
@@ -106,7 +107,8 @@ class AIClient:
         """
         生成轉發內容
         """
-        prompt = REPOST_GENERATION_PROMPT.format(post_content=post_content)
+        prompt_template = self._get_active_repost_prompt()
+        prompt = prompt_template.format(post_content=post_content)
         
         for attempt in range(max_retries):
             try:
@@ -213,23 +215,64 @@ class AIClient:
         return None
     
     def _get_active_importance_prompt(self) -> str:
-        """獲取活躍的重要性分析prompt"""
+        """從 Google Sheets 獲取活躍的重要性分析 prompt"""
         try:
-            from models.database import db_manager
+            from clients.google_sheets_client import GoogleSheetsClient
+            sheets_client = GoogleSheetsClient()
             
-            # 嘗試從數據庫獲取活躍的prompt
-            active_prompt = db_manager.get_active_prompt('importance')
+            # 從 Google Sheets 獲取活躍的 prompt
+            active_prompt = sheets_client.get_active_prompt("IMPORTANCE_FILTER")
             
-            if active_prompt and active_prompt.prompt_content:
-                logger.info(f"Using active prompt version: {active_prompt.version_name}")
-                return active_prompt.prompt_content
+            if active_prompt:
+                logger.info("Using active IMPORTANCE_FILTER prompt from Google Sheets")
+                return active_prompt
             else:
-                logger.info("No active prompt version found, using default from config")
+                logger.warning("No active IMPORTANCE_FILTER prompt found in Sheets, using config default")
                 return IMPORTANCE_FILTER_PROMPT
                 
         except Exception as e:
-            logger.warning(f"Failed to get active prompt from database: {e}, using default")
+            logger.warning(f"Failed to get active prompt from Google Sheets: {e}, using config default")
             return IMPORTANCE_FILTER_PROMPT
+    
+    def _get_active_summarization_prompt(self) -> str:
+        """從 Google Sheets 獲取活躍的摘要 prompt"""
+        try:
+            from clients.google_sheets_client import GoogleSheetsClient
+            sheets_client = GoogleSheetsClient()
+            
+            # 從 Google Sheets 獲取活躍的 prompt
+            active_prompt = sheets_client.get_active_prompt("SUMMARIZATION")
+            
+            if active_prompt:
+                logger.info("Using active SUMMARIZATION prompt from Google Sheets")
+                return active_prompt
+            else:
+                logger.warning("No active SUMMARIZATION prompt found in Sheets, using config default")
+                return SUMMARIZATION_PROMPT
+                
+        except Exception as e:
+            logger.warning(f"Failed to get active summarization prompt from Google Sheets: {e}, using config default")
+            return SUMMARIZATION_PROMPT
+    
+    def _get_active_repost_prompt(self) -> str:
+        """從 Google Sheets 獲取活躍的轉發 prompt"""
+        try:
+            from clients.google_sheets_client import GoogleSheetsClient
+            sheets_client = GoogleSheetsClient()
+            
+            # 從 Google Sheets 獲取活躍的 prompt
+            active_prompt = sheets_client.get_active_prompt("REPOST_GENERATION")
+            
+            if active_prompt:
+                logger.info("Using active REPOST_GENERATION prompt from Google Sheets")
+                return active_prompt
+            else:
+                logger.warning("No active REPOST_GENERATION prompt found in Sheets, using config default")
+                return REPOST_GENERATION_PROMPT
+                
+        except Exception as e:
+            logger.warning(f"Failed to get active repost prompt from Google Sheets: {e}, using config default")
+            return REPOST_GENERATION_PROMPT
     
     def batch_analyze(self, posts: list, batch_size: int = 5) -> list:
         """

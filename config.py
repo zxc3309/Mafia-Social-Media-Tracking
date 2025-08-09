@@ -19,6 +19,7 @@ OUTPUT_WORKSHEET_NAME = os.getenv("OUTPUT_WORKSHEET_NAME", "Analyzed Posts")
 # 新增的工作表配置
 ALL_POSTS_WORKSHEET_NAME = os.getenv("ALL_POSTS_WORKSHEET_NAME", "All Posts & AI Scores")
 PROMPT_HISTORY_WORKSHEET_NAME = os.getenv("PROMPT_HISTORY_WORKSHEET_NAME", "Prompt Optimization History")
+PROMPTS_WORKSHEET_NAME = os.getenv("PROMPTS_WORKSHEET_NAME", "AI Prompts")
 
 # 數據庫配置
 # Railway 會自動提供 DATABASE_URL 環境變數

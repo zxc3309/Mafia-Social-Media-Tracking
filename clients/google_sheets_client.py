@@ -13,7 +13,8 @@ from config import (
     INPUT_WORKSHEET_NAME,
     OUTPUT_WORKSHEET_NAME,
     ALL_POSTS_WORKSHEET_NAME,
-    PROMPT_HISTORY_WORKSHEET_NAME
+    PROMPT_HISTORY_WORKSHEET_NAME,
+    PROMPTS_WORKSHEET_NAME
 )
 
 logger = logging.getLogger(__name__)
@@ -436,3 +437,114 @@ class GoogleSheetsClient:
         except Exception as e:
             logger.error(f"Failed to update human score: {e}")
             return False
+    
+    def get_active_prompt(self, prompt_name: str) -> str:
+        """從 Google Sheets 獲取活躍的 prompt"""
+        try:
+            sheet = self.gc.open(OUTPUT_SPREADSHEET_NAME)
+            
+            # 檢查是否存在 AI Prompts 工作表
+            try:
+                worksheet = sheet.worksheet(PROMPTS_WORKSHEET_NAME)
+            except:
+                logger.warning(f"AI Prompts worksheet not found, creating it...")
+                self._create_prompts_worksheet(sheet)
+                worksheet = sheet.worksheet(PROMPTS_WORKSHEET_NAME)
+            
+            all_values = worksheet.get_all_values()
+            if len(all_values) <= 1:  # 只有標題行或空
+                logger.warning(f"No prompt data found for {prompt_name}")
+                return ""
+            
+            headers = all_values[0]
+            prompt_name_idx = headers.index('prompt_name') if 'prompt_name' in headers else -1
+            prompt_content_idx = headers.index('prompt_content') if 'prompt_content' in headers else -1
+            is_active_idx = headers.index('is_active') if 'is_active' in headers else -1
+            
+            if prompt_name_idx == -1 or prompt_content_idx == -1 or is_active_idx == -1:
+                logger.error("Required columns not found in AI Prompts sheet")
+                return ""
+            
+            # 找到活躍的 prompt
+            for row in all_values[1:]:
+                if (len(row) > max(prompt_name_idx, prompt_content_idx, is_active_idx) and
+                    row[prompt_name_idx] == prompt_name and 
+                    row[is_active_idx].upper() == 'TRUE'):
+                    
+                    logger.info(f"Using active prompt for {prompt_name}")
+                    return row[prompt_content_idx]
+            
+            logger.warning(f"No active prompt found for {prompt_name}")
+            return ""
+            
+        except Exception as e:
+            logger.error(f"Failed to get active prompt for {prompt_name}: {e}")
+            return ""
+    
+    def add_prompt_version(self, prompt_name: str, content: str, version: str) -> bool:
+        """新增 prompt 版本並設為活躍，將其他版本設為非活躍"""
+        try:
+            sheet = self.gc.open(OUTPUT_SPREADSHEET_NAME)
+            
+            # 檢查是否存在 AI Prompts 工作表
+            try:
+                worksheet = sheet.worksheet(PROMPTS_WORKSHEET_NAME)
+            except:
+                logger.info(f"Creating AI Prompts worksheet...")
+                self._create_prompts_worksheet(sheet)
+                worksheet = sheet.worksheet(PROMPTS_WORKSHEET_NAME)
+            
+            # 先將同名的所有 prompt 設為 inactive
+            all_values = worksheet.get_all_values()
+            if len(all_values) > 1:  # 有資料
+                headers = all_values[0]
+                prompt_name_idx = headers.index('prompt_name') if 'prompt_name' in headers else -1
+                is_active_idx = headers.index('is_active') if 'is_active' in headers else -1
+                
+                if prompt_name_idx != -1 and is_active_idx != -1:
+                    for i, row in enumerate(all_values[1:], start=2):  # 從第2行開始
+                        if (len(row) > max(prompt_name_idx, is_active_idx) and 
+                            row[prompt_name_idx] == prompt_name):
+                            worksheet.update_cell(i, is_active_idx + 1, "FALSE")
+            
+            # 新增新版本
+            from datetime import datetime
+            new_row = [
+                prompt_name,
+                content,
+                version,
+                "TRUE",  # is_active
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ]
+            
+            worksheet.append_row(new_row)
+            logger.info(f"Added new active prompt version {version} for {prompt_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to add prompt version: {e}")
+            return False
+    
+    def _create_prompts_worksheet(self, sheet):
+        """創建 AI Prompts 工作表"""
+        try:
+            worksheet = sheet.add_worksheet(
+                title=PROMPTS_WORKSHEET_NAME,
+                rows=1000,
+                cols=10
+            )
+            
+            # 設置標題行
+            headers = [
+                'prompt_name',
+                'prompt_content', 
+                'version',
+                'is_active',
+                'created_date'
+            ]
+            worksheet.append_row(headers)
+            logger.info("Created AI Prompts worksheet with headers")
+            
+        except Exception as e:
+            logger.error(f"Failed to create AI Prompts worksheet: {e}")
+            raise

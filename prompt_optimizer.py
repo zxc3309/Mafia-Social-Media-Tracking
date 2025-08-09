@@ -311,44 +311,31 @@ class PromptOptimizer:
             print(f"❌ 保存優化歷史時出錯: {e}")
             return False
     
-    def update_config_prompt(self, new_prompt: str) -> bool:
-        """更新config.py中的IMPORTANCE_FILTER_PROMPT"""
+    def update_prompt_sheets(self, new_prompt: str) -> bool:
+        """更新 Google Sheets 中的 IMPORTANCE_FILTER prompt"""
         try:
-            config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
+            from datetime import datetime
             
-            # 讀取config.py
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            # 生成新版本號
+            version = f"v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             
-            # 使用正則表達式找到IMPORTANCE_FILTER_PROMPT的定義
-            # 匹配從 IMPORTANCE_FILTER_PROMPT = 開始到下一個以 """ 結束的部分
-            pattern = r'(IMPORTANCE_FILTER_PROMPT\s*=\s*os\.getenv\("IMPORTANCE_FILTER_PROMPT",\s*""")(.*?)("""[^\n]*)'
+            # 使用 GoogleSheetsClient 新增新版本
+            success = self.sheets_client.add_prompt_version(
+                prompt_name="IMPORTANCE_FILTER",
+                content=new_prompt,
+                version=version
+            )
             
-            # 準備替換的內容，確保正確的縮排
-            replacement = r'\1\n' + new_prompt + '\n\3'
-            
-            # 執行替換
-            new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
-            
-            if new_content == content:
-                print("❌ 無法找到IMPORTANCE_FILTER_PROMPT定義")
+            if success:
+                print(f"✅ 已更新 Google Sheets 中的 IMPORTANCE_FILTER prompt")
+                print(f"📋 新版本: {version}")
+                return True
+            else:
+                print("❌ 無法更新 Google Sheets 中的 prompt")
                 return False
             
-            # 創建備份
-            backup_path = config_path + '.backup'
-            import shutil
-            shutil.copy2(config_path, backup_path)
-            
-            # 寫回config.py
-            with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(new_content)
-            
-            print(f"✅ 已更新config.py中的IMPORTANCE_FILTER_PROMPT")
-            print(f"📁 原文件備份至: {backup_path}")
-            return True
-            
         except Exception as e:
-            print(f"❌ 更新config.py時出錯: {e}")
+            print(f"❌ 更新 Google Sheets prompt 時出錯: {e}")
             return False
     
     def run_optimization_workflow(self, days_back: int = 30, auto_mode: bool = False):
@@ -398,16 +385,16 @@ class PromptOptimizer:
             if saved:
                 print("✅ 優化歷史已保存到Google Sheets")
                 
-                # 自動更新config.py
-                print("🔄 正在更新config.py...")
-                config_updated = self.update_config_prompt(updated_prompt)
+                # 自動更新 Google Sheets
+                print("🔄 正在更新 Google Sheets...")
+                sheets_updated = self.update_prompt_sheets(updated_prompt)
                 
-                if config_updated:
+                if sheets_updated:
                     print("✅ 優化workflow完成！")
                     print("🎯 新的prompt已自動應用到系統")
                 else:
-                    print("⚠️  優化歷史已保存，但無法自動更新config.py")
-                    print("📝 請手動更新config.py中的IMPORTANCE_FILTER_PROMPT")
+                    print("⚠️  優化歷史已保存，但無法自動更新 Google Sheets")
+                    print("📝 請手動更新 Google Sheets 中的 IMPORTANCE_FILTER prompt")
             else:
                 print("❌ 無法保存優化歷史")
         else:
@@ -418,15 +405,15 @@ class PromptOptimizer:
                 if saved:
                     print("✅ 優化workflow完成！")
                     
-                    # 詢問是否自動更新config.py
-                    update_config = input("🔄 是否自動更新config.py? (y/n): ").strip().lower()
-                    if update_config == 'y':
-                        if self.update_config_prompt(updated_prompt):
+                    # 詢問是否自動更新 Google Sheets
+                    update_sheets = input("🔄 是否自動更新 Google Sheets? (y/n): ").strip().lower()
+                    if update_sheets == 'y':
+                        if self.update_prompt_sheets(updated_prompt):
                             print("🎯 新的prompt已應用到系統")
                         else:
-                            print("📝 請手動更新config.py中的IMPORTANCE_FILTER_PROMPT")
+                            print("📝 請手動更新 Google Sheets 中的 IMPORTANCE_FILTER prompt")
                     else:
-                        print("📝 請手動更新config.py中的IMPORTANCE_FILTER_PROMPT以應用新prompt")
+                        print("📝 請手動更新 Google Sheets 中的 IMPORTANCE_FILTER prompt 以應用新prompt")
             else:
                 print("📋 優化prompt已生成但未保存")
 
