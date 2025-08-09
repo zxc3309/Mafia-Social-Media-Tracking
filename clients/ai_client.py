@@ -39,13 +39,13 @@ class AIClient:
             logger.error(f"Failed to initialize AI client: {e}")
             raise
     
-    def analyze_importance(self, post_content: str, max_retries: int = 3) -> Optional[float]:
+    def analyze_importance(self, post_content: str, author: str = "", max_retries: int = 3) -> Optional[float]:
         """
         分析貼文重要性，返回1-10的評分
         """
         # 優先從數據庫獲取活躍的prompt版本
         prompt_template = self._get_active_importance_prompt()
-        prompt = prompt_template.format(post_content=post_content)
+        prompt = prompt_template.format(post_content=post_content, author=author)
         
         for attempt in range(max_retries):
             try:
@@ -135,7 +135,7 @@ class AIClient:
         """調用OpenAI API"""
         try:
             response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[
                     {"role": "user", "content": prompt}
                 ],
@@ -243,12 +243,14 @@ class AIClient:
             for post in batch:
                 try:
                     content = post.get('original_content', '')
+                    # 優先使用 display_name，如果沒有則使用 username
+                    author = post.get('author_display_name', '') or post.get('author_username', '')
                     if not content:
                         logger.warning(f"Empty content for post {post.get('post_id')}")
                         continue
                     
-                    # 分析重要性
-                    importance_score = self.analyze_importance(content)
+                    # 分析重要性（包含作者信息）
+                    importance_score = self.analyze_importance(content, author)
                     
                     # 如果重要性評分失敗，跳過這篇貼文
                     if importance_score is None:
