@@ -31,8 +31,8 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # 定時任務配置
-COLLECTION_SCHEDULE_HOUR = int(os.getenv("COLLECTION_SCHEDULE_HOUR", "20"))  # 測試：20:50執行
-COLLECTION_SCHEDULE_MINUTE = int(os.getenv("COLLECTION_SCHEDULE_MINUTE", "50"))
+COLLECTION_SCHEDULE_HOUR = int(os.getenv("COLLECTION_SCHEDULE_HOUR", "21"))  # 測試：21:00執行
+COLLECTION_SCHEDULE_MINUTE = int(os.getenv("COLLECTION_SCHEDULE_MINUTE", "0"))
 
 # AI Prompts 配置變數
 IMPORTANCE_FILTER_PROMPT = os.getenv("IMPORTANCE_FILTER_PROMPT", """

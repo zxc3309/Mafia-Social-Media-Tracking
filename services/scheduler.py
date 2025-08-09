@@ -97,12 +97,16 @@ class SocialMediaScheduler:
                 logger.info(f"Job {job_id} already exists, removing it first")
                 self.scheduler.remove_job(job_id)
             
-            # 添加每日定時任務
+            # 添加每日定時任務 - 指定台北時區
+            import pytz
+            taipei_tz = pytz.timezone('Asia/Taipei')
+            
             self.scheduler.add_job(
                 func=execute_daily_collection_job,
                 trigger=CronTrigger(
                     hour=COLLECTION_SCHEDULE_HOUR,
-                    minute=COLLECTION_SCHEDULE_MINUTE
+                    minute=COLLECTION_SCHEDULE_MINUTE,
+                    timezone=taipei_tz
                 ),
                 id=job_id,
                 name='Daily Post Collection',
