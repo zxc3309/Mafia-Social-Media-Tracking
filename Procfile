@@ -1,1 +1,1 @@
-web: echo "🚀 Starting Railway web service..." && echo "🌐 Starting web server with scheduler..." && python main.py --web-server
+web: python -m uvicorn app:app --host 0.0.0.0 --port $PORT
