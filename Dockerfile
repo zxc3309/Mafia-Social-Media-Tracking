@@ -32,5 +32,5 @@ ENV PYTHONUNBUFFERED=1
 # 暴露端口（如果需要）
 EXPOSE 8080
 
-# 運行Web服務器（持續運行模式）
-CMD ["sh", "-c", "echo '🚀 Starting Railway web service...' && echo '🌐 Starting web server with scheduler...' && python main.py --web-server"]
+# 運行Web服務器 - 使用 uvicorn 直接啟動，從環境變數讀取端口
+CMD ["sh", "-c", "python -m uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"]
