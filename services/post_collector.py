@@ -382,6 +382,9 @@ class PostCollector:
             last_post = session.query(Post).order_by(Post.collected_at.desc()).first()
             last_collection = last_post.collected_at.isoformat() if last_post else None
             
+            # 獲取最新貼文的發布時間（用於參考）
+            latest_post_time = last_post.post_time.isoformat() if (last_post and last_post.post_time) else None
+            
             session.close()
             
             return {
@@ -391,6 +394,7 @@ class PostCollector:
                 'today_posts': today_posts,
                 'platform_breakdown': {stat.platform: stat.count for stat in platform_stats},
                 'last_collection': last_collection,
+                'latest_post_time': latest_post_time,
                 'last_updated': datetime.utcnow().isoformat()
             }
             

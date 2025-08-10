@@ -642,9 +642,9 @@ async def dashboard():
                                 document.getElementById('last-collection').textContent = diffDays + 'd';
                             }
                             
-                            // 顯示台北時間
+                            // 顯示台北時間（收集時間）
                             document.getElementById('collection-time').textContent = 
-                                taipeiTime.toLocaleString('zh-TW', {
+                                '收集: ' + taipeiTime.toLocaleString('zh-TW', {
                                     year: 'numeric',
                                     month: '2-digit', 
                                     day: '2-digit',
