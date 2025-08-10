@@ -378,25 +378,27 @@ class PostCollector:
                 func.date(Post.collected_at) == today
             ).count()
             
-            # 獲取最後收集時間 - 查詢最新的 5 條記錄進行調試
-            recent_posts = session.query(Post).order_by(Post.collected_at.desc()).limit(5).all()
+            # 同時查詢 posts 和 analyzed_posts 表，取最新的
+            last_post = session.query(Post).order_by(Post.collected_at.desc()).first()
+            last_analyzed = session.query(AnalyzedPost).order_by(AnalyzedPost.collected_at.desc()).first()
             
-            if recent_posts:
-                logger.info(f"🔍 Debug - Recent posts (top 5):")
-                for i, post in enumerate(recent_posts):
-                    logger.info(f"   #{i+1}: ID={post.post_id}, Platform={post.platform}")
-                    logger.info(f"        Collected: {post.collected_at} ({post.collected_at.isoformat()})")
-                    logger.info(f"        Post time: {post.post_time}")
-                    logger.info(f"        Author: {post.author_username}")
-                
-                # 使用第一條（最新的）記錄
-                last_post = recent_posts[0]
+            # 比較兩個表，使用最新的記錄
+            if last_post and last_analyzed:
+                if last_post.collected_at > last_analyzed.collected_at:
+                    last_collection = last_post.collected_at.isoformat()
+                    logger.info(f"📊 Using last collection from posts table: {last_collection}")
+                else:
+                    last_collection = last_analyzed.collected_at.isoformat()
+                    logger.info(f"📊 Using last collection from analyzed_posts table: {last_collection}")
+            elif last_analyzed:
+                last_collection = last_analyzed.collected_at.isoformat()
+                logger.info(f"📊 Only analyzed_posts has data: {last_collection}")
+            elif last_post:
                 last_collection = last_post.collected_at.isoformat()
-                logger.info(f"🎯 Using last_collection: {last_collection}")
+                logger.info(f"📊 Only posts table has data: {last_collection}")
             else:
-                logger.warning("🔍 Debug - No posts found in database")
-                last_post = None
                 last_collection = None
+                logger.warning("📊 No data in either posts or analyzed_posts tables")
             
             # 獲取最新貼文的發布時間（用於參考）
             latest_post_time = last_post.post_time.isoformat() if (last_post and last_post.post_time) else None
