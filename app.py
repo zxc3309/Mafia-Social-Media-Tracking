@@ -745,12 +745,12 @@ async def dashboard():
                 updateTime();
                 refreshStatus();
                 
-                // Auto-refresh every 30 seconds
-                setInterval(updateTime, 30000);
-                setInterval(refreshStatus, 30000);
+                // Auto-refresh every 30 minutes
+                setInterval(updateTime, 30000); // Time updates every 30 seconds
+                setInterval(refreshStatus, 1800000); // Status updates every 30 minutes
                 
                 log('🌐 Social Media Intelligence Dashboard initialized');
-                log('💡 System auto-refreshes every 30 seconds');
+                log('💡 Status auto-refreshes every 30 minutes, time every 30 seconds');
                 
                 // Add smooth scroll behavior
                 document.documentElement.style.scrollBehavior = 'smooth';
