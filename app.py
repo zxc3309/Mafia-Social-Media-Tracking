@@ -624,8 +624,38 @@ async def dashboard():
                     if (data.collection_stats) {
                         const stats = data.collection_stats;
                         document.getElementById('total-posts').textContent = stats.total_posts || '0';
-                        document.getElementById('last-collection').textContent = stats.today_posts || '0';
-                        document.getElementById('collection-time').textContent = stats.last_updated || 'Unknown';
+                        
+                        // 處理最後收集時間
+                        if (stats.last_collection) {
+                            // 轉換 UTC 時間為台北時間
+                            const lastCollectionDate = new Date(stats.last_collection + 'Z'); // 確保解析為 UTC
+                            const taipeiTime = new Date(lastCollectionDate.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
+                            
+                            // 計算距離現在的時間
+                            const now = new Date();
+                            const diffHours = Math.round((now - taipeiTime) / (1000 * 60 * 60));
+                            
+                            if (diffHours < 24) {
+                                document.getElementById('last-collection').textContent = diffHours + 'h';
+                            } else {
+                                const diffDays = Math.round(diffHours / 24);
+                                document.getElementById('last-collection').textContent = diffDays + 'd';
+                            }
+                            
+                            // 顯示台北時間
+                            document.getElementById('collection-time').textContent = 
+                                taipeiTime.toLocaleString('zh-TW', {
+                                    year: 'numeric',
+                                    month: '2-digit', 
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    timeZone: 'Asia/Taipei'
+                                });
+                        } else {
+                            document.getElementById('last-collection').textContent = '0';
+                            document.getElementById('collection-time').textContent = '無資料';
+                        }
                     }
                     
                     log('✅ Status updated successfully');

@@ -378,6 +378,10 @@ class PostCollector:
                 func.date(Post.collected_at) == today
             ).count()
             
+            # 獲取最後收集時間
+            last_post = session.query(Post).order_by(Post.collected_at.desc()).first()
+            last_collection = last_post.collected_at.isoformat() if last_post else None
+            
             session.close()
             
             return {
@@ -386,6 +390,7 @@ class PostCollector:
                 'important_posts': important_posts,
                 'today_posts': today_posts,
                 'platform_breakdown': {stat.platform: stat.count for stat in platform_stats},
+                'last_collection': last_collection,
                 'last_updated': datetime.utcnow().isoformat()
             }
             
