@@ -627,13 +627,24 @@ async def dashboard():
                         
                         // 處理最後收集時間
                         if (stats.last_collection) {
-                            // 轉換 UTC 時間為台北時間
-                            const lastCollectionDate = new Date(stats.last_collection + 'Z'); // 確保解析為 UTC
-                            const taipeiTime = new Date(lastCollectionDate.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
+                            console.log('🔍 Debug - Frontend timezone conversion:');
+                            console.log('   Raw last_collection:', stats.last_collection);
                             
-                            // 計算距離現在的時間
+                            // 正確解析 UTC 時間
+                            let lastCollectionDate;
+                            if (stats.last_collection.endsWith('Z')) {
+                                lastCollectionDate = new Date(stats.last_collection);
+                            } else {
+                                lastCollectionDate = new Date(stats.last_collection + 'Z');
+                            }
+                            
+                            console.log('   Parsed UTC date:', lastCollectionDate.toISOString());
+                            console.log('   Local browser time:', lastCollectionDate.toLocaleString());
+                            
+                            // 計算距離現在的時間（使用本地時間比較）
                             const now = new Date();
-                            const diffHours = Math.round((now - taipeiTime) / (1000 * 60 * 60));
+                            const diffMs = now - lastCollectionDate;
+                            const diffHours = Math.round(diffMs / (1000 * 60 * 60));
                             
                             if (diffHours < 24) {
                                 document.getElementById('last-collection').textContent = diffHours + 'h';
@@ -643,15 +654,17 @@ async def dashboard():
                             }
                             
                             // 顯示台北時間（收集時間）
-                            document.getElementById('collection-time').textContent = 
-                                '收集: ' + taipeiTime.toLocaleString('zh-TW', {
-                                    year: 'numeric',
-                                    month: '2-digit', 
-                                    day: '2-digit',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    timeZone: 'Asia/Taipei'
-                                });
+                            const taipeiTimeString = lastCollectionDate.toLocaleString('zh-TW', {
+                                year: 'numeric',
+                                month: '2-digit', 
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                timeZone: 'Asia/Taipei'
+                            });
+                            
+                            console.log('   Taiwan time string:', taipeiTimeString);
+                            document.getElementById('collection-time').textContent = '收集: ' + taipeiTimeString;
                         } else {
                             document.getElementById('last-collection').textContent = '0';
                             document.getElementById('collection-time').textContent = '無資料';

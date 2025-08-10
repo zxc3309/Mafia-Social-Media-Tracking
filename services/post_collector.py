@@ -382,6 +382,18 @@ class PostCollector:
             last_post = session.query(Post).order_by(Post.collected_at.desc()).first()
             last_collection = last_post.collected_at.isoformat() if last_post else None
             
+            # 調試日誌
+            if last_post:
+                logger.info(f"🔍 Debug - Last post found:")
+                logger.info(f"   Post ID: {last_post.post_id}")
+                logger.info(f"   Platform: {last_post.platform}")
+                logger.info(f"   Author: {last_post.author_username}")
+                logger.info(f"   Collected at (raw): {last_post.collected_at}")
+                logger.info(f"   Collected at (ISO): {last_collection}")
+                logger.info(f"   Post time (raw): {last_post.post_time}")
+            else:
+                logger.warning("🔍 Debug - No posts found in database")
+            
             # 獲取最新貼文的發布時間（用於參考）
             latest_post_time = last_post.post_time.isoformat() if (last_post and last_post.post_time) else None
             
