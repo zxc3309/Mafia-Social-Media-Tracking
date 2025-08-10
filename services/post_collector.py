@@ -378,21 +378,25 @@ class PostCollector:
                 func.date(Post.collected_at) == today
             ).count()
             
-            # 獲取最後收集時間
-            last_post = session.query(Post).order_by(Post.collected_at.desc()).first()
-            last_collection = last_post.collected_at.isoformat() if last_post else None
+            # 獲取最後收集時間 - 查詢最新的 5 條記錄進行調試
+            recent_posts = session.query(Post).order_by(Post.collected_at.desc()).limit(5).all()
             
-            # 調試日誌
-            if last_post:
-                logger.info(f"🔍 Debug - Last post found:")
-                logger.info(f"   Post ID: {last_post.post_id}")
-                logger.info(f"   Platform: {last_post.platform}")
-                logger.info(f"   Author: {last_post.author_username}")
-                logger.info(f"   Collected at (raw): {last_post.collected_at}")
-                logger.info(f"   Collected at (ISO): {last_collection}")
-                logger.info(f"   Post time (raw): {last_post.post_time}")
+            if recent_posts:
+                logger.info(f"🔍 Debug - Recent posts (top 5):")
+                for i, post in enumerate(recent_posts):
+                    logger.info(f"   #{i+1}: ID={post.post_id}, Platform={post.platform}")
+                    logger.info(f"        Collected: {post.collected_at} ({post.collected_at.isoformat()})")
+                    logger.info(f"        Post time: {post.post_time}")
+                    logger.info(f"        Author: {post.author_username}")
+                
+                # 使用第一條（最新的）記錄
+                last_post = recent_posts[0]
+                last_collection = last_post.collected_at.isoformat()
+                logger.info(f"🎯 Using last_collection: {last_collection}")
             else:
                 logger.warning("🔍 Debug - No posts found in database")
+                last_post = None
+                last_collection = None
             
             # 獲取最新貼文的發布時間（用於參考）
             latest_post_time = last_post.post_time.isoformat() if (last_post and last_post.post_time) else None

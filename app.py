@@ -664,7 +664,7 @@ async def dashboard():
                             });
                             
                             console.log('   Taiwan time string:', taipeiTimeString);
-                            document.getElementById('collection-time').textContent = '收集: ' + taipeiTimeString;
+                            document.getElementById('collection-time').textContent = taipeiTimeString;
                         } else {
                             document.getElementById('last-collection').textContent = '0';
                             document.getElementById('collection-time').textContent = '無資料';
