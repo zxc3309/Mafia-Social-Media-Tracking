@@ -133,19 +133,18 @@ class AIClient:
                 
         return None
     
+    
     def _call_openai(self, prompt: str, max_tokens: int = 150) -> Optional[str]:
-        """調用OpenAI API"""
+        """調用 GPT-4o with Responses API + Web Search"""
         try:
-            response = self.openai_client.chat.completions.create(
+            response = self.openai_client.responses.create(
                 model="gpt-4o",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=max_tokens,
-                temperature=0.7
+                input=prompt,
+                tools=[{"type": "web_search_preview"}],  # 總是啟用 Web Search 獲得即時資訊
+                max_output_tokens=max_tokens
             )
             
-            return response.choices[0].message.content
+            return response.output_text
             
         except openai.RateLimitError:
             logger.warning("OpenAI rate limit reached, waiting...")
@@ -274,6 +273,7 @@ class AIClient:
             logger.warning(f"Failed to get active repost prompt from Google Sheets: {e}, using config default")
             return REPOST_GENERATION_PROMPT
     
+
     def batch_analyze(self, posts: list, batch_size: int = 5) -> list:
         """
         批量分析貼文
