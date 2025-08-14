@@ -32,5 +32,5 @@ ENV PYTHONUNBUFFERED=1
 # 暴露端口（如果需要）
 EXPOSE 8080
 
-# 運行Web服務器 - 使用專門的啟動腳本避開 main.py
-CMD ["python", "start_web.py"]
+# 運行Web服務器
+CMD ["python", "app.py"]
