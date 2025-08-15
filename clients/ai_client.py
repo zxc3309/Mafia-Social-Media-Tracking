@@ -2,7 +2,9 @@ import openai
 import anthropic
 import time
 import logging
-from typing import Optional, Dict, Any
+import hashlib
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
 from config import (
     AI_API_KEY, 
     AI_API_TYPE,
@@ -38,6 +40,151 @@ class AIClient:
         except Exception as e:
             logger.error(f"Failed to initialize AI client: {e}")
             raise
+    
+    def detect_and_group_threads(self, posts: List[Dict[str, Any]], time_threshold_minutes: int = 5) -> List[List[Dict[str, Any]]]:
+        """
+        檢測並分組 Thread
+        
+        Args:
+            posts: 貼文列表
+            time_threshold_minutes: 時間閾值（分鐘）
+            
+        Returns:
+            List of thread groups, each containing related posts
+        """
+        if not posts:
+            return []
+        
+        # 按作者和時間排序
+        sorted_posts = sorted(posts, key=lambda x: (
+            x.get('author_username', ''),
+            self._parse_post_time(x.get('post_time', ''))
+        ))
+        
+        threads = []
+        current_thread = []
+        last_author = None
+        last_time = None
+        
+        for post in sorted_posts:
+            author = post.get('author_username', '')
+            post_time = self._parse_post_time(post.get('post_time', ''))
+            
+            # 檢查是否開始新的 Thread
+            if (last_author != author or 
+                not last_time or 
+                not post_time or
+                abs((post_time - last_time).total_seconds()) > time_threshold_minutes * 60):
+                
+                # 保存上一個 Thread（如果有的話）
+                if current_thread:
+                    threads.append(current_thread)
+                
+                # 開始新的 Thread
+                current_thread = [post]
+            else:
+                # 添加到當前 Thread
+                current_thread.append(post)
+            
+            last_author = author
+            last_time = post_time
+        
+        # 添加最後一個 Thread
+        if current_thread:
+            threads.append(current_thread)
+        
+        logger.info(f"Detected {len(threads)} threads from {len(posts)} posts")
+        return threads
+    
+    def _parse_post_time(self, time_str: str) -> Optional[datetime]:
+        """解析貼文時間字串為 datetime 對象"""
+        if not time_str:
+            return None
+        
+        try:
+            # 嘗試不同的時間格式
+            formats = [
+                '%Y-%m-%dT%H:%M:%S.%fZ',  # ISO format with microseconds
+                '%Y-%m-%dT%H:%M:%SZ',     # ISO format without microseconds
+                '%Y-%m-%d %H:%M:%S',      # Simple format
+                '%Y-%m-%dT%H:%M:%S+00:00',# ISO with timezone
+            ]
+            
+            for fmt in formats:
+                try:
+                    return datetime.strptime(time_str, fmt)
+                except ValueError:
+                    continue
+            
+            logger.warning(f"Unable to parse time: {time_str}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error parsing time {time_str}: {e}")
+            return None
+    
+    def generate_thread_id(self, thread_posts: List[Dict[str, Any]]) -> str:
+        """為 Thread 生成唯一的 ID"""
+        if not thread_posts:
+            return ""
+        
+        first_post = thread_posts[0]
+        author = first_post.get('author_username', '')
+        platform = first_post.get('platform', '')
+        post_time = first_post.get('post_time', '')
+        
+        # 使用平台、作者、時間的組合生成 hash
+        unique_string = f"{platform}_{author}_{post_time}_{len(thread_posts)}"
+        thread_id = hashlib.md5(unique_string.encode()).hexdigest()[:16]
+        
+        return f"{platform}_{author}_{thread_id}"
+    
+    def merge_thread_content(self, thread_posts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        合併 Thread 內容
+        
+        Args:
+            thread_posts: Thread 內的貼文列表
+            
+        Returns:
+            合併後的 Thread 資料
+        """
+        if not thread_posts:
+            return {}
+        
+        if len(thread_posts) == 1:
+            # 單一貼文，直接返回
+            return thread_posts[0]
+        
+        # 排序貼文（按時間）
+        sorted_posts = sorted(thread_posts, key=lambda x: self._parse_post_time(x.get('post_time', '')) or datetime.min)
+        
+        first_post = sorted_posts[0]
+        last_post = sorted_posts[-1]
+        
+        # 合併內容
+        merged_content_parts = []
+        for i, post in enumerate(sorted_posts, 1):
+            content = post.get('original_content', '').strip()
+            if content:
+                merged_content_parts.append(f"{i}/{len(sorted_posts)}: {content}")
+        
+        merged_content = "\n".join(merged_content_parts)
+        
+        # 創建合併後的貼文資料
+        merged_post = first_post.copy()
+        merged_post.update({
+            'original_content': merged_content,
+            'is_thread': True,
+            'thread_count': len(thread_posts),
+            'thread_posts': thread_posts,  # 保留原始貼文列表
+            'post_time_range': {
+                'start': first_post.get('post_time', ''),
+                'end': last_post.get('post_time', '')
+            }
+        })
+        
+        return merged_post
     
     def analyze_importance(self, post_content: str, author: str = "", max_retries: int = 3) -> Optional[float]:
         """
@@ -277,60 +424,98 @@ class AIClient:
 
     def batch_analyze(self, posts: list, batch_size: int = 5) -> list:
         """
-        批量分析貼文
+        批量分析貼文（支援 Thread 整合）
         """
         analyzed_posts = []
         
-        for i in range(0, len(posts), batch_size):
-            batch = posts[i:i + batch_size]
-            
-            for post in batch:
-                try:
-                    content = post.get('original_content', '')
-                    # 優先使用 display_name，如果沒有則使用 username
-                    author = post.get('author_display_name', '') or post.get('author_username', '')
-                    if not content:
-                        logger.warning(f"Empty content for post {post.get('post_id')}")
-                        continue
-                    
-                    # 分析重要性（包含作者信息）
-                    importance_score = self.analyze_importance(content, author)
-                    
-                    # 如果重要性評分失敗，跳過這篇貼文
-                    if importance_score is None:
-                        logger.error(f"Failed to get importance score for post {post.get('post_id')}")
-                        continue
-                    
-                    # 準備分析後的貼文數據
-                    analyzed_post = post.copy()
-                    analyzed_post['importance_score'] = importance_score
-                    
-                    # 只對重要的貼文進行摘要和轉發內容生成
-                    from config import IMPORTANCE_THRESHOLD
-                    if importance_score >= IMPORTANCE_THRESHOLD:
-                        # 生成摘要
-                        summary = self.summarize_content(content)
-                        analyzed_post['summary'] = summary if summary else "摘要生成失敗"
-                        
-                        # 生成轉發內容
-                        repost_content = self.generate_repost_content(content)
-                        analyzed_post['repost_content'] = repost_content if repost_content else "轉發內容生成失敗"
-                    else:
-                        analyzed_post['summary'] = "重要性不足，未生成摘要"
-                        analyzed_post['repost_content'] = "重要性不足，未生成轉發內容"
-                    
-                    analyzed_posts.append(analyzed_post)
-                    
-                    # 避免API調用過於頻繁
-                    time.sleep(1)
-                    
-                except Exception as e:
-                    logger.error(f"Error analyzing post {post.get('post_id', 'unknown')}: {e}")
-                    continue
-            
-            # 批次間稍作暫停
-            if i + batch_size < len(posts):
-                time.sleep(2)
+        # 1. 檢測並分組 Threads
+        threads = self.detect_and_group_threads(posts)
+        logger.info(f"Processing {len(threads)} threads (from {len(posts)} posts)")
         
-        logger.info(f"Analyzed {len(analyzed_posts)} out of {len(posts)} posts")
+        # 2. 處理每個 Thread
+        for thread_posts in threads:
+            try:
+                # 生成 thread_id
+                thread_id = self.generate_thread_id(thread_posts)
+                
+                if len(thread_posts) == 1:
+                    # 單一貼文，直接分析
+                    post = thread_posts[0]
+                    post['thread_id'] = thread_id
+                    analyzed_post = self._analyze_single_post(post)
+                    if analyzed_post:
+                        analyzed_posts.append(analyzed_post)
+                else:
+                    # Thread 分析：合併內容後分析，然後套用到所有貼文
+                    merged_thread = self.merge_thread_content(thread_posts)
+                    merged_thread['thread_id'] = thread_id
+                    
+                    # 分析合併後的 Thread
+                    thread_analysis = self._analyze_single_post(merged_thread)
+                    
+                    if thread_analysis:
+                        # 將分析結果套用到 Thread 內的每個貼文
+                        for post in thread_posts:
+                            analyzed_post = post.copy()
+                            analyzed_post.update({
+                                'thread_id': thread_id,
+                                'importance_score': thread_analysis['importance_score'],
+                                'summary': thread_analysis.get('summary', ''),
+                                'repost_content': thread_analysis.get('repost_content', ''),
+                                'is_part_of_thread': True,
+                                'thread_count': len(thread_posts)
+                            })
+                            analyzed_posts.append(analyzed_post)
+                
+                # 避免API調用過於頻繁
+                time.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"Error analyzing thread: {e}")
+                continue
+        
+        logger.info(f"Successfully analyzed {len(analyzed_posts)} posts from {len(threads)} threads")
         return analyzed_posts
+    
+    def _analyze_single_post(self, post: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """分析單個貼文（或合併的 Thread）"""
+        try:
+            content = post.get('original_content', '')
+            # 優先使用 display_name，如果沒有則使用 username
+            author = post.get('author_display_name', '') or post.get('author_username', '')
+            
+            if not content:
+                logger.warning(f"Empty content for post {post.get('post_id')}")
+                return None
+            
+            # 分析重要性（包含作者信息）
+            importance_score = self.analyze_importance(content, author)
+            
+            # 如果重要性評分失敗，跳過這篇貼文
+            if importance_score is None:
+                logger.error(f"Failed to get importance score for post {post.get('post_id')}")
+                return None
+            
+            # 準備分析後的貼文數據
+            analyzed_post = post.copy()
+            analyzed_post['importance_score'] = importance_score
+            
+            # 只對重要的貼文進行摘要和轉發內容生成
+            from config import IMPORTANCE_THRESHOLD
+            if importance_score >= IMPORTANCE_THRESHOLD:
+                # 生成摘要
+                summary = self.summarize_content(content)
+                analyzed_post['summary'] = summary if summary else "摘要生成失敗"
+                
+                # 生成轉發內容
+                repost_content = self.generate_repost_content(content)
+                analyzed_post['repost_content'] = repost_content if repost_content else "轉發內容生成失敗"
+            else:
+                analyzed_post['summary'] = "重要性不足，未生成摘要"
+                analyzed_post['repost_content'] = "重要性不足，未生成轉發內容"
+            
+            return analyzed_post
+            
+        except Exception as e:
+            logger.error(f"Error analyzing post {post.get('post_id', 'unknown')}: {e}")
+            return None

@@ -39,6 +39,7 @@ class Post(Base):
     post_url = Column(String(500))
     metrics = Column(JSON)  # 存儲點贊、分享等數據
     language = Column(String(10))
+    thread_id = Column(String(255))  # Thread 識別碼，用於關聯同一個 Thread 的多個貼文
     collected_at = Column(DateTime, default=datetime.utcnow)
     
     # 唯一約束：同平台同post_id只能有一條記錄
@@ -68,6 +69,7 @@ class AnalyzedPost(Base):
     analyzed_at = Column(DateTime, default=datetime.utcnow)
     category = Column(String(100))
     status = Column(String(50), default='new')  # new, reviewed, posted, archived
+    thread_id = Column(String(255))  # Thread 識別碼，與原始貼文關聯
     
     def __repr__(self):
         return f"<AnalyzedPost(id={self.id}, platform='{self.platform}', importance={self.importance_score})>"
@@ -282,6 +284,7 @@ class DatabaseManager:
                         post_url=post_data.get('post_url'),
                         metrics=post_data.get('metrics'),
                         language=post_data.get('language'),
+                        thread_id=post_data.get('thread_id'),
                         collected_at=datetime.fromisoformat(post_data['collected_at'].replace('Z', '+00:00')) if post_data.get('collected_at') else datetime.utcnow()
                     )
                     session.add(post)
@@ -317,7 +320,8 @@ class DatabaseManager:
                     post_time=datetime.fromisoformat(post_data['post_time'].replace('Z', '+00:00')) if post_data.get('post_time') else None,
                     collected_at=datetime.fromisoformat(post_data['collected_at'].replace('Z', '+00:00')) if post_data.get('collected_at') else datetime.utcnow(),
                     category=post_data.get('category'),
-                    status=post_data.get('status', 'new')
+                    status=post_data.get('status', 'new'),
+                    thread_id=post_data.get('thread_id')
                 )
                 session.add(analyzed_post)
             

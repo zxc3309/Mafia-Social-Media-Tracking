@@ -6,7 +6,7 @@ from clients.x_client import XClient
 from clients.linkedin_client import LinkedInClient
 from clients.ai_client import AIClient
 from models.database import db_manager
-from config import PLATFORMS, IMPORTANCE_THRESHOLD, SCRAPER_CONFIG, NITTER_INSTANCES, TWITTER_CLIENT_PRIORITY
+from config import PLATFORMS, IMPORTANCE_THRESHOLD, SCRAPER_CONFIG, NITTER_INSTANCES, TWITTER_CLIENT_PRIORITY, OUTPUT_WORKSHEET_NAME, ALL_POSTS_WORKSHEET_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +131,24 @@ class PostCollector:
             # 2. 同步帳號到數據庫
             db_manager.save_accounts(accounts)
             
-            # 3. 獲取已存在的貼文URL，用於去重
+            # 3. 獲取已存在的貼文，用於去重
+            # 同時檢查 URL 和 post_id
             existing_urls = set(self.sheets_client.get_existing_post_urls())
+            
+            # 從兩個工作表獲取已存在的 post_ids
+            existing_post_ids_output = self.sheets_client.get_existing_post_ids(OUTPUT_WORKSHEET_NAME)
+            existing_post_ids_all = self.sheets_client.get_existing_post_ids(ALL_POSTS_WORKSHEET_NAME)
+            
+            # 合併所有已存在的 post_ids
+            all_existing_post_ids = {}
+            for platform in set(list(existing_post_ids_output.keys()) + list(existing_post_ids_all.keys())):
+                all_existing_post_ids[platform] = set()
+                if platform in existing_post_ids_output:
+                    all_existing_post_ids[platform].update(existing_post_ids_output[platform])
+                if platform in existing_post_ids_all:
+                    all_existing_post_ids[platform].update(existing_post_ids_all[platform])
+            
+            logger.info(f"Total existing posts - URLs: {len(existing_urls)}, Post IDs: {sum(len(ids) for ids in all_existing_post_ids.values())}")
             
             # 4. 收集所有平台的貼文
             all_posts = []
@@ -147,14 +163,38 @@ class PostCollector:
                 try:
                     posts = self._collect_posts_for_account(platform, username)
                     
-                    # 去重：過濾已存在的貼文
-                    new_posts = [post for post in posts if post.get('post_url') not in existing_urls]
+                    # 去重：同時檢查 URL 和 post_id
+                    new_posts = []
+                    url_duplicates = 0
+                    id_duplicates = 0
+                    
+                    for post in posts:
+                        post_url = post.get('post_url')
+                        post_id = post.get('post_id')
+                        post_platform = post.get('platform', '').lower()
+                        
+                        # 檢查 URL 重複
+                        if post_url and post_url in existing_urls:
+                            url_duplicates += 1
+                            logger.debug(f"Skipping duplicate URL: {post_url}")
+                            continue
+                        
+                        # 檢查 post_id 重複
+                        if post_id and post_platform in all_existing_post_ids and post_id in all_existing_post_ids[post_platform]:
+                            id_duplicates += 1
+                            logger.debug(f"Skipping duplicate post_id: {post_platform}/{post_id}")
+                            continue
+                        
+                        new_posts.append(post)
                     
                     if new_posts:
                         all_posts.extend(new_posts)
-                        logger.info(f"Collected {len(new_posts)} new posts from {platform}/@{username}")
+                        logger.info(f"Collected {len(new_posts)} new posts from {platform}/@{username} (filtered {url_duplicates} URL duplicates, {id_duplicates} ID duplicates)")
                     else:
-                        logger.info(f"No new posts from {platform}/@{username}")
+                        if url_duplicates > 0 or id_duplicates > 0:
+                            logger.info(f"No new posts from {platform}/@{username} (all {url_duplicates + id_duplicates} posts were duplicates)")
+                        else:
+                            logger.info(f"No new posts from {platform}/@{username}")
                         
                 except Exception as e:
                     error_msg = f"Error collecting posts from {platform}/@{username}: {e}"
@@ -281,11 +321,39 @@ class PostCollector:
             all_posts = []
             existing_urls = set(self.sheets_client.get_existing_post_urls())
             
+            # 獲取已存在的 post_ids
+            existing_post_ids_output = self.sheets_client.get_existing_post_ids(OUTPUT_WORKSHEET_NAME)
+            existing_post_ids_all = self.sheets_client.get_existing_post_ids(ALL_POSTS_WORKSHEET_NAME)
+            
+            # 合併已存在的 post_ids
+            all_existing_post_ids = {}
+            for plat in set(list(existing_post_ids_output.keys()) + list(existing_post_ids_all.keys())):
+                all_existing_post_ids[plat] = set()
+                if plat in existing_post_ids_output:
+                    all_existing_post_ids[plat].update(existing_post_ids_output[plat])
+                if plat in existing_post_ids_all:
+                    all_existing_post_ids[plat].update(existing_post_ids_all[plat])
+            
             for account in accounts:
                 username = account['username']
                 try:
                     posts = self._collect_posts_for_account(platform, username)
-                    new_posts = [post for post in posts if post.get('post_url') not in existing_urls]
+                    
+                    # 去重：同時檢查 URL 和 post_id
+                    new_posts = []
+                    for post in posts:
+                        post_url = post.get('post_url')
+                        post_id = post.get('post_id')
+                        post_platform = post.get('platform', '').lower()
+                        
+                        # 檢查重複
+                        if post_url and post_url in existing_urls:
+                            continue
+                        if post_id and post_platform in all_existing_post_ids and post_id in all_existing_post_ids[post_platform]:
+                            continue
+                        
+                        new_posts.append(post)
+                    
                     all_posts.extend(new_posts)
                     
                 except Exception as e:

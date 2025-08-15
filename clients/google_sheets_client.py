@@ -6,6 +6,8 @@ import logging
 import os
 import json
 import base64
+import pytz
+from datetime import datetime
 from config import (
     GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH,
     INPUT_SPREADSHEET_NAME,
@@ -22,6 +24,8 @@ logger = logging.getLogger(__name__)
 class GoogleSheetsClient:
     def __init__(self):
         self.gc = None
+        self.taiwan_tz = pytz.timezone('Asia/Taipei')
+        self.utc_tz = pytz.UTC
         self._initialize_client()
     
     def _initialize_client(self):
@@ -67,6 +71,136 @@ class GoogleSheetsClient:
             logger.error(f"Failed to initialize Google Sheets client: {e}")
             raise
     
+    def convert_to_taiwan_time(self, time_input: Any) -> str:
+        """將時間轉換為台灣時間字串
+        
+        Args:
+            time_input: 可以是 datetime object、ISO format string、或其他時間格式
+            
+        Returns:
+            格式化的台灣時間字串 (YYYY-MM-DD HH:MM:SS)
+        """
+        if not time_input:
+            return ''
+        
+        try:
+            # 如果是字串，嘗試解析
+            if isinstance(time_input, str):
+                # 處理常見的 ISO 格式
+                if 'T' in time_input:
+                    # 移除毫秒部分（如果有）
+                    if '.' in time_input:
+                        time_input = time_input.split('.')[0] + 'Z' if time_input.endswith('Z') else time_input.split('.')[0]
+                    
+                    # 替換 Z 為 +00:00 以便 fromisoformat 可以解析
+                    if time_input.endswith('Z'):
+                        time_input = time_input[:-1] + '+00:00'
+                    
+                    # 解析 ISO 格式
+                    dt = datetime.fromisoformat(time_input)
+                else:
+                    # 嘗試其他常見格式
+                    from dateutil import parser
+                    dt = parser.parse(time_input)
+            elif isinstance(time_input, datetime):
+                dt = time_input
+            else:
+                return str(time_input)
+            
+            # 如果沒有時區信息，假設是 UTC
+            if dt.tzinfo is None:
+                dt = self.utc_tz.localize(dt)
+            
+            # 轉換為台灣時間
+            taiwan_time = dt.astimezone(self.taiwan_tz)
+            
+            # 格式化輸出
+            return taiwan_time.strftime('%Y-%m-%d %H:%M:%S')
+            
+        except Exception as e:
+            logger.warning(f"Failed to convert time to Taiwan timezone: {e}, input: {time_input}")
+            # 如果轉換失敗，返回原始值的字串形式
+            return str(time_input)
+    
+    def get_taiwan_now(self) -> str:
+        """獲取當前台灣時間的格式化字串"""
+        now = datetime.now(self.taiwan_tz)
+        return now.strftime('%Y-%m-%d %H:%M:%S')
+    
+    def group_posts_by_thread(self, posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        將貼文按 Thread 分組並格式化為 Thread 顯示
+        
+        Args:
+            posts: 分析後的貼文列表
+            
+        Returns:
+            Thread 列表，每個 Thread 為一個整合的顯示項目
+        """
+        if not posts:
+            return []
+        
+        # 按 thread_id 分組
+        threads_map = {}
+        for post in posts:
+            thread_id = post.get('thread_id', post.get('post_id', ''))
+            if thread_id not in threads_map:
+                threads_map[thread_id] = []
+            threads_map[thread_id].append(post)
+        
+        thread_displays = []
+        
+        for thread_id, thread_posts in threads_map.items():
+            if len(thread_posts) == 1:
+                # 單一貼文，直接使用
+                thread_displays.append(thread_posts[0])
+            else:
+                # 多個貼文的 Thread，需要整合
+                thread_display = self._create_thread_display(thread_posts)
+                thread_displays.append(thread_display)
+        
+        return thread_displays
+    
+    def _create_thread_display(self, thread_posts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """創建 Thread 整合顯示"""
+        if not thread_posts:
+            return {}
+        
+        # 按時間排序
+        sorted_posts = sorted(thread_posts, key=lambda x: x.get('post_time', ''))
+        first_post = sorted_posts[0]
+        last_post = sorted_posts[-1]
+        
+        # 整合內容
+        thread_content_parts = []
+        for i, post in enumerate(sorted_posts, 1):
+            content = post.get('original_content', '').strip()
+            if content:
+                thread_content_parts.append(f"{i}/{len(sorted_posts)}: {content}")
+        
+        merged_content = "\n".join(thread_content_parts)
+        
+        # 計算時間範圍
+        start_time = self.convert_to_taiwan_time(first_post.get('post_time', ''))
+        end_time = self.convert_to_taiwan_time(last_post.get('post_time', ''))
+        
+        if start_time == end_time:
+            time_display = start_time
+        else:
+            time_display = f"{start_time} ~ {end_time}"
+        
+        # 創建 Thread 顯示項目
+        thread_display = first_post.copy()
+        thread_display.update({
+            'original_content': f"【Thread - {len(thread_posts)} 則貼文】\n{merged_content}",
+            'post_time': time_display,
+            'thread_count': len(thread_posts),
+            'is_thread_display': True,
+            'thread_posts_count': len(thread_posts)
+        })
+        
+        return thread_display
+    
     def get_accounts_to_track(self) -> List[Dict[str, Any]]:
         """從 Google Sheets 讀取要追蹤的帳號列表"""
         try:
@@ -95,53 +229,81 @@ class GoogleSheetsClient:
             return []
     
     def write_analyzed_posts(self, posts: List[Dict[str, Any]]) -> bool:
-        """將分析後的貼文數據寫入 Google Sheets"""
+        """將分析後的貼文數據寫入 Google Sheets（Thread 整合顯示）"""
         try:
             sheet = self.gc.open(OUTPUT_SPREADSHEET_NAME)
             
             try:
                 worksheet = sheet.worksheet(OUTPUT_WORKSHEET_NAME)
+                # 獲取現有的 post_ids 用於去重
+                existing_post_ids = self.get_existing_post_ids(OUTPUT_WORKSHEET_NAME)
             except gspread.WorksheetNotFound:
                 # 如果工作表不存在，創建一個新的
                 worksheet = sheet.add_worksheet(
                     title=OUTPUT_WORKSHEET_NAME, 
                     rows=1000, 
-                    cols=12
+                    cols=14
                 )
-                # 設置標題行
+                # 設置標題行（加入 Thread 數量）
                 headers = [
                     '時間', '平台', '發文者', '發文者顯示名稱', 
                     '原始內容', '摘要內容', '重要性評分', '轉發內容',
-                    '原始貼文URL', '收集時間', '分類', '狀態'
+                    '原始貼文URL', '收集時間', '分類', '狀態', 'Post ID', 'Thread數量'
                 ]
                 worksheet.append_row(headers)
+                existing_post_ids = {}
             
-            # 準備數據
+            # 1. 將貼文按 Thread 分組並整合顯示
+            thread_displays = self.group_posts_by_thread(posts)
+            logger.info(f"Grouped {len(posts)} posts into {len(thread_displays)} thread displays")
+            
+            # 2. 準備數據，過濾重複的 thread
             rows_to_add = []
-            for post in posts:
+            duplicates_count = 0
+            
+            for thread_display in thread_displays:
+                platform = thread_display.get('platform', '').lower()
+                thread_id = thread_display.get('thread_id', thread_display.get('post_id', ''))
+                
+                # 檢查是否已存在（使用 thread_id 或 post_id）
+                if platform in existing_post_ids and thread_id in existing_post_ids[platform]:
+                    duplicates_count += 1
+                    logger.debug(f"Skipping duplicate thread: {platform}/{thread_id}")
+                    continue
+                
+                # 格式化時間（如果是 Thread 可能已經是範圍格式）
+                time_display = thread_display.get('post_time', '')
+                if not ('~' in time_display):  # 如果不是範圍格式，進行轉換
+                    time_display = self.convert_to_taiwan_time(time_display)
+                
                 row = [
-                    post.get('post_time', ''),
-                    post.get('platform', ''),
-                    post.get('author_username', ''),
-                    post.get('author_display_name', ''),
-                    post.get('original_content', ''),
-                    post.get('summary', ''),
-                    post.get('importance_score', ''),
-                    post.get('repost_content', ''),
-                    post.get('post_url', ''),
-                    post.get('collected_at', ''),
-                    post.get('category', ''),
-                    post.get('status', 'new')
+                    time_display,
+                    thread_display.get('platform', ''),
+                    thread_display.get('author_username', ''),
+                    thread_display.get('author_display_name', ''),
+                    thread_display.get('original_content', ''),
+                    thread_display.get('summary', ''),
+                    thread_display.get('importance_score', ''),
+                    thread_display.get('repost_content', ''),
+                    thread_display.get('post_url', ''),
+                    self.convert_to_taiwan_time(thread_display.get('collected_at', '')),
+                    thread_display.get('category', ''),
+                    thread_display.get('status', 'new'),
+                    thread_id,
+                    thread_display.get('thread_posts_count', 1)  # Thread 內貼文數量
                 ]
                 rows_to_add.append(row)
             
-            # 批量添加數據
+            # 3. 批量添加數據
             if rows_to_add:
                 worksheet.append_rows(rows_to_add)
-                logger.info(f"Successfully wrote {len(rows_to_add)} posts to Google Sheets")
+                logger.info(f"Successfully wrote {len(rows_to_add)} thread displays to Google Sheets (filtered {duplicates_count} duplicates)")
                 return True
             else:
-                logger.warning("No posts to write")
+                if duplicates_count > 0:
+                    logger.info(f"No new threads to write (all {duplicates_count} threads were duplicates)")
+                else:
+                    logger.warning("No threads to write")
                 return True
                 
         except Exception as e:
@@ -206,6 +368,66 @@ class GoogleSheetsClient:
             logger.error(f"Failed to get existing post URLs: {e}")
             return []
     
+    def get_existing_post_ids(self, worksheet_name: str) -> Dict[str, set]:
+        """獲取已存在的貼文ID列表，按平台分組，用於去重
+        
+        Returns:
+            Dict[str, set]: 格式為 {'platform': set(post_ids)}
+        """
+        try:
+            sheet = self.gc.open(OUTPUT_SPREADSHEET_NAME)
+            
+            try:
+                worksheet = sheet.worksheet(worksheet_name)
+                all_values = worksheet.get_all_values()
+                
+                if len(all_values) <= 1:  # 只有標題行或空表
+                    return {}
+                
+                headers = all_values[0]
+                
+                # 找到必要的列索引
+                post_id_col_idx = -1
+                platform_col_idx = -1
+                
+                # 嘗試不同的列名
+                for idx, header in enumerate(headers):
+                    if header in ['Post ID', 'post_id', '貼文ID']:
+                        post_id_col_idx = idx
+                    elif header in ['平台', 'platform', 'Platform']:
+                        platform_col_idx = idx
+                
+                if post_id_col_idx == -1 or platform_col_idx == -1:
+                    logger.warning(f"Required columns not found in {worksheet_name}")
+                    return {}
+                
+                # 按平台分組收集 post_id
+                existing_ids = {}
+                for row in all_values[1:]:
+                    if len(row) > max(post_id_col_idx, platform_col_idx):
+                        platform = row[platform_col_idx].lower() if row[platform_col_idx] else ''
+                        post_id = row[post_id_col_idx]
+                        
+                        if platform and post_id:
+                            if platform not in existing_ids:
+                                existing_ids[platform] = set()
+                            existing_ids[platform].add(post_id)
+                
+                total_count = sum(len(ids) for ids in existing_ids.values())
+                logger.info(f"Found {total_count} existing post IDs in {worksheet_name}")
+                for platform, ids in existing_ids.items():
+                    logger.info(f"  {platform}: {len(ids)} posts")
+                
+                return existing_ids
+                
+            except gspread.WorksheetNotFound:
+                logger.info(f"Worksheet {worksheet_name} doesn't exist yet")
+                return {}
+                
+        except Exception as e:
+            logger.error(f"Failed to get existing post IDs from {worksheet_name}: {e}")
+            return {}
+    
     def write_all_posts_with_scores(self, posts: List[Dict[str, Any]]) -> bool:
         """將所有貼文及其AI評分寫入專門的工作表"""
         try:
@@ -213,6 +435,8 @@ class GoogleSheetsClient:
             
             try:
                 worksheet = sheet.worksheet(ALL_POSTS_WORKSHEET_NAME)
+                # 獲取現有的 post_ids 用於去重
+                existing_post_ids = self.get_existing_post_ids(ALL_POSTS_WORKSHEET_NAME)
             except gspread.WorksheetNotFound:
                 # 創建新工作表
                 worksheet = sheet.add_worksheet(
@@ -229,10 +453,22 @@ class GoogleSheetsClient:
                 ]
                 worksheet.append_row(headers)
                 logger.info(f"Created new worksheet: {ALL_POSTS_WORKSHEET_NAME}")
+                existing_post_ids = {}
             
-            # 準備數據
+            # 準備數據，過濾重複的 post_id
             rows_to_add = []
+            duplicates_count = 0
+            
             for post in posts:
+                platform = post.get('platform', '').lower()
+                post_id = post.get('post_id', '')
+                
+                # 檢查是否已存在
+                if platform in existing_post_ids and post_id in existing_post_ids[platform]:
+                    duplicates_count += 1
+                    logger.debug(f"Skipping duplicate post in All Posts: {platform}/{post_id}")
+                    continue
+                
                 # 計算內容預覽（前100字符）
                 content = post.get('original_content', '')
                 content_preview = content[:100] + "..." if len(content) > 100 else content
@@ -249,11 +485,11 @@ class GoogleSheetsClient:
                         score_diff = ''
                 
                 row = [
-                    post.get('collected_at', ''),
+                    self.convert_to_taiwan_time(post.get('collected_at', '')),
                     post.get('platform', ''),
                     post.get('author_username', ''),
                     post.get('author_display_name', ''),
-                    post.get('post_time', ''),
+                    self.convert_to_taiwan_time(post.get('post_time', '')),
                     content,
                     content_preview,
                     ai_score,
@@ -271,10 +507,13 @@ class GoogleSheetsClient:
             # 批量添加數據
             if rows_to_add:
                 worksheet.append_rows(rows_to_add)
-                logger.info(f"Successfully wrote {len(rows_to_add)} posts to {ALL_POSTS_WORKSHEET_NAME}")
+                logger.info(f"Successfully wrote {len(rows_to_add)} new posts to {ALL_POSTS_WORKSHEET_NAME} (filtered {duplicates_count} duplicates)")
                 return True
             else:
-                logger.warning("No posts to write to all posts sheet")
+                if duplicates_count > 0:
+                    logger.info(f"No new posts to write to All Posts (all {duplicates_count} posts were duplicates)")
+                else:
+                    logger.warning("No posts to write to all posts sheet")
                 return True
                 
         except Exception as e:
@@ -313,7 +552,7 @@ class GoogleSheetsClient:
             issues_text = "; ".join(main_issues) if main_issues else ""
             
             row = [
-                optimization_data.get('created_at', ''),
+                self.convert_to_taiwan_time(optimization_data.get('created_at', '')),
                 optimization_data.get('version_name', ''),
                 optimization_data.get('total_feedbacks', ''),
                 optimization_data.get('avg_difference', ''),
@@ -508,13 +747,12 @@ class GoogleSheetsClient:
                             worksheet.update_cell(i, is_active_idx + 1, "FALSE")
             
             # 新增新版本
-            from datetime import datetime
             new_row = [
                 prompt_name,
                 content,
                 version,
                 "TRUE",  # is_active
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.get_taiwan_now()
             ]
             
             worksheet.append_row(new_row)
