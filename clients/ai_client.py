@@ -135,16 +135,17 @@ class AIClient:
     
     
     def _call_openai(self, prompt: str, max_tokens: int = 150) -> Optional[str]:
-        """調用 GPT-4o with Responses API + Web Search"""
+        """調用 GPT-4o"""
         try:
-            response = self.openai_client.responses.create(
+            response = self.openai_client.chat.completions.create(
                 model="gpt-4o",
-                input=prompt,
-                tools=[{"type": "web_search_preview"}],  # 總是啟用 Web Search 獲得即時資訊
-                max_output_tokens=max_tokens
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=max_tokens
             )
             
-            return response.output_text
+            return response.choices[0].message.content
             
         except openai.RateLimitError:
             logger.warning("OpenAI rate limit reached, waiting...")
