@@ -176,29 +176,31 @@ class DatabaseManager:
             is_railway = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
             
             if is_postgres and is_railway:
-                # Railway PostgreSQL 環境：不要自動創建 analyzed_posts 表
-                # 這個表應該已經通過遷移腳本正確創建
-                logger.info("PostgreSQL production environment detected - checking existing tables")
+                # Railway PostgreSQL 環境：檢查表結構並處理缺失的列
+                logger.info("PostgreSQL production environment detected - checking tables and columns")
                 
                 from sqlalchemy import inspect
                 inspector = inspect(self.engine)
                 existing_tables = inspector.get_table_names()
                 logger.info(f"Existing tables: {existing_tables}")
                 
-                # 只創建不存在的表，跳過 analyzed_posts
+                # 創建缺失的表
                 tables_to_create = []
                 for table_name, table in Base.metadata.tables.items():
                     if table_name not in existing_tables:
                         tables_to_create.append(table)
                         logger.info(f"Will create missing table: {table_name}")
                     else:
-                        logger.info(f"Table already exists, skipping: {table_name}")
+                        logger.info(f"Table already exists: {table_name}")
                 
-                # 只創建缺失的表
                 if tables_to_create:
                     for table in tables_to_create:
                         table.create(bind=self.engine, checkfirst=True)
                     logger.info(f"Created {len(tables_to_create)} missing tables")
+                
+                # 檢查關鍵列是否存在
+                self._check_and_log_column_status()
+                
             else:
                 # 本地環境：正常創建所有表
                 logger.info("Local development environment - creating all tables")
@@ -216,6 +218,42 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             raise
+    
+    def _check_and_log_column_status(self):
+        """檢查關鍵列是否存在並記錄狀態"""
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(self.engine)
+            
+            # 檢查 posts 表的 thread_id 列
+            try:
+                posts_columns = [col['name'] for col in inspector.get_columns('posts')]
+                posts_has_thread_id = 'thread_id' in posts_columns
+                logger.info(f"posts.thread_id column: {'✅ exists' if posts_has_thread_id else '❌ missing'}")
+            except Exception as e:
+                logger.warning(f"Could not check posts table columns: {e}")
+            
+            # 檢查 analyzed_posts 表的 thread_id 列
+            try:
+                analyzed_posts_columns = [col['name'] for col in inspector.get_columns('analyzed_posts')]
+                analyzed_posts_has_thread_id = 'thread_id' in analyzed_posts_columns
+                logger.info(f"analyzed_posts.thread_id column: {'✅ exists' if analyzed_posts_has_thread_id else '❌ missing'}")
+            except Exception as e:
+                logger.warning(f"Could not check analyzed_posts table columns: {e}")
+                
+        except Exception as e:
+            logger.warning(f"Error checking column status: {e}")
+    
+    def column_exists(self, table_name: str, column_name: str) -> bool:
+        """檢查表中是否存在指定列"""
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(self.engine)
+            columns = [col['name'] for col in inspector.get_columns(table_name)]
+            return column_name in columns
+        except Exception as e:
+            logger.warning(f"Error checking if column {column_name} exists in table {table_name}: {e}")
+            return False
     
     def get_session(self):
         """獲取數據庫會話"""
@@ -265,6 +303,11 @@ class DatabaseManager:
         """保存貼文到數據庫"""
         session = self.get_session()
         try:
+            # 檢查 thread_id 列是否存在
+            thread_id_exists = self.column_exists('posts', 'thread_id')
+            if not thread_id_exists:
+                logger.warning("posts.thread_id column does not exist - will save posts without thread_id")
+            
             saved_count = 0
             for post_data in posts:
                 # 檢查是否已存在（避免重複）
@@ -274,19 +317,25 @@ class DatabaseManager:
                 ).first()
                 
                 if not existing:
-                    post = Post(
-                        platform=post_data['platform'],
-                        post_id=post_data['post_id'],
-                        author_username=post_data['author_username'],
-                        author_display_name=post_data.get('author_display_name'),
-                        original_content=post_data.get('original_content'),
-                        post_time=datetime.fromisoformat(post_data['post_time'].replace('Z', '+00:00')) if post_data.get('post_time') else None,
-                        post_url=post_data.get('post_url'),
-                        metrics=post_data.get('metrics'),
-                        language=post_data.get('language'),
-                        thread_id=post_data.get('thread_id'),
-                        collected_at=datetime.fromisoformat(post_data['collected_at'].replace('Z', '+00:00')) if post_data.get('collected_at') else datetime.utcnow()
-                    )
+                    # 準備貼文數據，根據列存在與否決定是否包含 thread_id
+                    post_kwargs = {
+                        'platform': post_data['platform'],
+                        'post_id': post_data['post_id'],
+                        'author_username': post_data['author_username'],
+                        'author_display_name': post_data.get('author_display_name'),
+                        'original_content': post_data.get('original_content'),
+                        'post_time': datetime.fromisoformat(post_data['post_time'].replace('Z', '+00:00')) if post_data.get('post_time') else None,
+                        'post_url': post_data.get('post_url'),
+                        'metrics': post_data.get('metrics'),
+                        'language': post_data.get('language'),
+                        'collected_at': datetime.fromisoformat(post_data['collected_at'].replace('Z', '+00:00')) if post_data.get('collected_at') else datetime.utcnow()
+                    }
+                    
+                    # 只有在列存在時才設置 thread_id
+                    if thread_id_exists:
+                        post_kwargs['thread_id'] = post_data.get('thread_id')
+                    
+                    post = Post(**post_kwargs)
                     session.add(post)
                     saved_count += 1
             
@@ -305,24 +354,35 @@ class DatabaseManager:
         """保存分析後的貼文到數據庫"""
         session = self.get_session()
         try:
+            # 檢查 thread_id 列是否存在
+            thread_id_exists = self.column_exists('analyzed_posts', 'thread_id')
+            if not thread_id_exists:
+                logger.warning("analyzed_posts.thread_id column does not exist - will save posts without thread_id")
+            
             for post_data in analyzed_posts:
-                analyzed_post = AnalyzedPost(
-                    post_id=post_data.get('post_id', 0),
-                    platform=post_data['platform'],
-                    original_post_id=post_data['post_id'],
-                    author_username=post_data['author_username'],
-                    author_display_name=post_data.get('author_display_name'),
-                    original_content=post_data.get('original_content'),
-                    summary=post_data.get('summary'),
-                    importance_score=post_data.get('importance_score'),
-                    repost_content=post_data.get('repost_content'),
-                    post_url=post_data.get('post_url'),
-                    post_time=datetime.fromisoformat(post_data['post_time'].replace('Z', '+00:00')) if post_data.get('post_time') else None,
-                    collected_at=datetime.fromisoformat(post_data['collected_at'].replace('Z', '+00:00')) if post_data.get('collected_at') else datetime.utcnow(),
-                    category=post_data.get('category'),
-                    status=post_data.get('status', 'new'),
-                    thread_id=post_data.get('thread_id')
-                )
+                # 準備分析後貼文數據，根據列存在與否決定是否包含 thread_id
+                analyzed_post_kwargs = {
+                    'post_id': post_data.get('post_id', 0),
+                    'platform': post_data['platform'],
+                    'original_post_id': post_data['post_id'],
+                    'author_username': post_data['author_username'],
+                    'author_display_name': post_data.get('author_display_name'),
+                    'original_content': post_data.get('original_content'),
+                    'summary': post_data.get('summary'),
+                    'importance_score': post_data.get('importance_score'),
+                    'repost_content': post_data.get('repost_content'),
+                    'post_url': post_data.get('post_url'),
+                    'post_time': datetime.fromisoformat(post_data['post_time'].replace('Z', '+00:00')) if post_data.get('post_time') else None,
+                    'collected_at': datetime.fromisoformat(post_data['collected_at'].replace('Z', '+00:00')) if post_data.get('collected_at') else datetime.utcnow(),
+                    'category': post_data.get('category'),
+                    'status': post_data.get('status', 'new')
+                }
+                
+                # 只有在列存在時才設置 thread_id
+                if thread_id_exists:
+                    analyzed_post_kwargs['thread_id'] = post_data.get('thread_id')
+                
+                analyzed_post = AnalyzedPost(**analyzed_post_kwargs)
                 session.add(analyzed_post)
             
             session.commit()
