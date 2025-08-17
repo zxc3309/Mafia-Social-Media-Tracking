@@ -849,13 +849,53 @@ async def dashboard():
 
 @app.get("/health")
 async def health_check():
-    """健康檢查端點"""
+    """健康檢查端點 - 用於監控服務狀態"""
+    # 獲取最後收集時間
+    last_collection = None
+    next_collection = None
+    scheduler_jobs = []
+    
+    try:
+        if scheduler and scheduler.scheduler.running:
+            jobs = scheduler.scheduler.get_jobs()
+            for job in jobs:
+                job_info = {
+                    "id": job.id,
+                    "name": job.name,
+                    "next_run": job.next_run_time.isoformat() if job.next_run_time else None
+                }
+                scheduler_jobs.append(job_info)
+                
+                # 找到每日收集任務
+                if "daily_collection" in job.id:
+                    next_collection = job.next_run_time.isoformat() if job.next_run_time else None
+    except Exception as e:
+        logger.error(f"Error getting scheduler info: {e}")
+    
+    # 嘗試從數據庫獲取最後收集時間
+    try:
+        from models.database import db_manager
+        session = db_manager.get_session()
+        from sqlalchemy import text
+        result = session.execute(text(
+            "SELECT MAX(collected_at) as last_time FROM posts"
+        )).fetchone()
+        if result and result.last_time:
+            last_collection = result.last_time.isoformat()
+        session.close()
+    except Exception as e:
+        logger.error(f"Error getting last collection time: {e}")
+    
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
         "service": "social-media-tracker",
-        "mode": "full",
-        "scheduler": "active" if scheduler and scheduler.scheduler.running else "inactive",
+        "scheduler_running": scheduler and scheduler.scheduler.running,
+        "scheduler_jobs_count": len(scheduler_jobs),
+        "next_collection": next_collection,
+        "last_collection": last_collection,
+        "scheduled_time": f"{COLLECTION_SCHEDULE_HOUR:02d}:{COLLECTION_SCHEDULE_MINUTE:02d} daily",
+        "environment": os.getenv("RAILWAY_ENVIRONMENT_NAME", "local"),
         "port": os.getenv("PORT", "8080")
     }
 

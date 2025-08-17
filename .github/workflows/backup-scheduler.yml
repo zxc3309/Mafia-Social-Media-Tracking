@@ -1,0 +1,107 @@
+name: Backup Scheduler - Health Check & Trigger
+
+on:
+  # 每天早上 9:05 CST (UTC 1:05) - 比 Railway 排程晚 5 分鐘
+  schedule:
+    - cron: '5 1 * * *'
+  # 允許手動觸發
+  workflow_dispatch:
+
+jobs:
+  health-check-and-trigger:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check Railway Service Health
+        id: health_check
+        run: |
+          echo "🔍 Checking Railway service health..."
+          
+          # Get Railway service URL
+          RAILWAY_URL="${{ secrets.RAILWAY_SERVICE_URL }}"
+          
+          if [ -z "$RAILWAY_URL" ]; then
+            echo "⚠️ RAILWAY_SERVICE_URL not set, skipping health check"
+            echo "need_trigger=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Check health endpoint
+          echo "📡 Checking: ${RAILWAY_URL}/health"
+          
+          health_response=$(curl -s -f -m 10 "${RAILWAY_URL}/health" 2>/dev/null || echo "FAILED")
+          
+          if [ "$health_response" = "FAILED" ]; then
+            echo "❌ Railway service is not responding"
+            echo "need_trigger=true" >> $GITHUB_OUTPUT
+          else
+            # Parse the health response
+            echo "📊 Health Response: $health_response"
+            
+            # Check if scheduler is running
+            if echo "$health_response" | grep -q '"scheduler_running":true'; then
+              echo "✅ Railway scheduler is running normally"
+              
+              # Check if today's collection has already run
+              last_run=$(echo "$health_response" | grep -o '"last_collection":"[^"]*"' | cut -d'"' -f4)
+              today=$(date -u +%Y-%m-%d)
+              
+              if [[ "$last_run" == *"$today"* ]]; then
+                echo "✅ Today's collection already completed at $last_run"
+                echo "need_trigger=false" >> $GITHUB_OUTPUT
+              else
+                echo "⚠️ Today's collection hasn't run yet"
+                echo "need_trigger=true" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "⚠️ Railway scheduler is not running"
+              echo "need_trigger=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+      
+      - name: Trigger Collection if Needed
+        if: steps.health_check.outputs.need_trigger == 'true'
+        run: |
+          echo "🚀 Triggering backup collection..."
+          
+          RAILWAY_URL="${{ secrets.RAILWAY_SERVICE_URL }}"
+          
+          if [ -z "$RAILWAY_URL" ]; then
+            echo "❌ Cannot trigger - RAILWAY_SERVICE_URL not set"
+            exit 1
+          fi
+          
+          # Trigger collection
+          response=$(curl -s -X POST "${RAILWAY_URL}/trigger" \
+            -H "Content-Type: application/json" \
+            -w "\nHTTP_STATUS:%{http_code}" \
+            -d '{"source": "github-actions-backup"}' || echo "CURL_FAILED")
+          
+          if echo "$response" | grep -q "CURL_FAILED"; then
+            echo "❌ Failed to trigger collection - service may be down"
+            echo "💡 Consider manually checking Railway dashboard"
+            exit 1
+          fi
+          
+          http_status=$(echo "$response" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+          
+          if [ "$http_status" -eq 200 ]; then
+            echo "✅ Backup collection triggered successfully!"
+          else
+            echo "❌ Failed to trigger collection (HTTP $http_status)"
+            exit 1
+          fi
+      
+      - name: Final Status
+        run: |
+          if [ "${{ steps.health_check.outputs.need_trigger }}" = "true" ]; then
+            echo "📊 Backup scheduler intervention was needed"
+            echo "💡 Check Railway logs for collection results"
+          else
+            echo "✅ Railway scheduler is working normally"
+            echo "🎯 No backup intervention needed"
+          fi
+          
+          echo ""
+          echo "📅 Next check: Tomorrow at 9:05 AM CST"
+          echo "🔗 Railway Dashboard: https://railway.app/dashboard"

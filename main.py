@@ -38,19 +38,28 @@ def check_and_run_migration():
     """檢查並運行數據庫遷移（啟動前安全檢查）"""
     print("🔍 執行啟動前數據庫檢查...")
     
-    # 只在 Railway PostgreSQL 環境執行
-    is_railway = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
+    # 檢查是否為 PostgreSQL (Railway 或其他)
     is_postgres = DATABASE_URL.startswith('postgres')
     
-    if not (is_railway and is_postgres):
-        print("✅ 本地環境，跳過遷移檢查")
+    if not is_postgres:
+        print("✅ 非 PostgreSQL 環境，跳過遷移檢查")
         return True
     
-    # 運行 thread_id 遷移
+    # 運行 thread_id 遷移 (對所有 PostgreSQL 環境)
     try:
         print("🔄 檢查 thread_id 列...")
         from scripts.add_thread_id_migration import ThreadIdMigration
         migration = ThreadIdMigration()
+        
+        # 檢查是否需要遷移
+        posts_has_thread = migration.check_column_exists('posts', 'thread_id')
+        analyzed_has_thread = migration.check_column_exists('analyzed_posts', 'thread_id')
+        
+        if posts_has_thread and analyzed_has_thread:
+            print("✅ Thread ID 列已存在")
+            return True
+            
+        # 執行遷移
         if migration.run_migration(dry_run=False):
             print("✅ Thread ID 遷移完成")
         else:
@@ -58,6 +67,8 @@ def check_and_run_migration():
     except Exception as e:
         print(f"⚠️ Thread ID 遷移檢查失敗: {e}")
         # 不要因為遷移失敗而阻止應用程式啟動
+    
+    # 繼續原有的 post_id 類型檢查 (保留向後相容)
     
     try:
         from sqlalchemy import create_engine, text
