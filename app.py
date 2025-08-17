@@ -38,6 +38,44 @@ app = FastAPI(
 scheduler = None
 collector = PostCollector()
 
+async def run_thread_id_migration_check():
+    """Run thread_id migration check for Railway PostgreSQL"""
+    try:
+        # Check if we're on Railway PostgreSQL
+        is_railway = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
+        from config import DATABASE_URL
+        is_postgres = DATABASE_URL.startswith('postgres')
+        
+        if not (is_railway and is_postgres):
+            logger.info("✅ Not on Railway PostgreSQL, skipping thread_id migration check")
+            return
+        
+        logger.info("🔍 Checking for thread_id columns in Railway PostgreSQL...")
+        
+        # Run the migration
+        from scripts.add_thread_id_migration import ThreadIdMigration
+        migration = ThreadIdMigration()
+        
+        # First check current state
+        posts_has_thread = migration.check_column_exists('posts', 'thread_id')
+        analyzed_has_thread = migration.check_column_exists('analyzed_posts', 'thread_id')
+        
+        if posts_has_thread and analyzed_has_thread:
+            logger.info("✅ Both thread_id columns already exist")
+            return
+        
+        logger.info("🚀 Running thread_id migration...")
+        success = migration.run_migration(dry_run=False)
+        
+        if success:
+            logger.info("✅ Thread ID migration completed successfully!")
+        else:
+            logger.warning("⚠️ Thread ID migration failed, but app will continue with safety checks")
+            
+    except Exception as e:
+        logger.error(f"❌ Thread ID migration check failed: {e}")
+        logger.info("⚠️ Continuing with application startup despite migration error")
+
 @app.on_event("startup")
 async def startup_event():
     """應用啟動時初始化排程器"""
@@ -48,6 +86,9 @@ async def startup_event():
         logger.info(f"Python version: {sys.version}")
         logger.info(f"PORT environment: {os.getenv('PORT', 'Not set')}")
         logger.info("=" * 60)
+        
+        # Run thread_id migration check for Railway PostgreSQL
+        await run_thread_id_migration_check()
         
         # 初始化排程器
         logger.info("🔄 Initializing scheduler...")
