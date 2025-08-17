@@ -46,6 +46,19 @@ def check_and_run_migration():
         print("✅ 本地環境，跳過遷移檢查")
         return True
     
+    # 運行 thread_id 遷移
+    try:
+        print("🔄 檢查 thread_id 列...")
+        from scripts.add_thread_id_migration import ThreadIdMigration
+        migration = ThreadIdMigration()
+        if migration.run_migration(dry_run=False):
+            print("✅ Thread ID 遷移完成")
+        else:
+            print("⚠️ Thread ID 遷移失敗，但應用程式將繼續運行")
+    except Exception as e:
+        print(f"⚠️ Thread ID 遷移檢查失敗: {e}")
+        # 不要因為遷移失敗而阻止應用程式啟動
+    
     try:
         from sqlalchemy import create_engine, text
         engine = create_engine(DATABASE_URL)
