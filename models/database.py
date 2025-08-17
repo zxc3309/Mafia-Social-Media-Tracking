@@ -351,7 +351,7 @@ class DatabaseManager:
             session.close()
     
     def save_analyzed_posts(self, analyzed_posts: list):
-        """保存分析後的貼文到數據庫"""
+        """保存分析後的貼文到數據庫（展開Thread為個別貼文）"""
         session = self.get_session()
         try:
             # 檢查 thread_id 列是否存在
@@ -359,7 +359,20 @@ class DatabaseManager:
             if not thread_id_exists:
                 logger.warning("analyzed_posts.thread_id column does not exist - will save posts without thread_id")
             
-            for post_data in analyzed_posts:
+            # 展開分析結果為個別貼文
+            all_individual_posts = []
+            for analyzed_item in analyzed_posts:
+                if analyzed_item.get('is_thread', False) and 'individual_posts_for_all_sheet' in analyzed_item:
+                    # Thread：展開為個別貼文
+                    individual_posts = analyzed_item['individual_posts_for_all_sheet']
+                    all_individual_posts.extend(individual_posts)
+                else:
+                    # 單一貼文：直接添加
+                    all_individual_posts.append(analyzed_item)
+            
+            logger.info(f"Saving {len(all_individual_posts)} individual posts to database (from {len(analyzed_posts)} analyzed items)")
+            
+            for post_data in all_individual_posts:
                 # 準備分析後貼文數據，根據列存在與否決定是否包含 thread_id
                 analyzed_post_kwargs = {
                     'post_id': post_data.get('post_id', 0),

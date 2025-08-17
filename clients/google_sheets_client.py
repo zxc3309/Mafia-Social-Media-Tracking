@@ -143,7 +143,12 @@ class GoogleSheetsClient:
         # 按 thread_id 分組
         threads_map = {}
         for post in posts:
-            thread_id = post.get('thread_id', post.get('post_id', ''))
+            thread_id = post.get('thread_id')
+            if not thread_id:
+                # 如果沒有 thread_id，使用 post_id 作為唯一的 thread_id
+                # 這樣確保每個沒有 thread_id 的貼文都是獨立的
+                thread_id = f"single_{post.get('platform', 'unknown')}_{post.get('post_id', 'unknown')}"
+            
             if thread_id not in threads_map:
                 threads_map[thread_id] = []
             threads_map[thread_id].append(post)
@@ -152,11 +157,15 @@ class GoogleSheetsClient:
         
         for thread_id, thread_posts in threads_map.items():
             if len(thread_posts) == 1:
-                # 單一貼文，直接使用
-                thread_displays.append(thread_posts[0])
+                # 單一貼文，確保設置正確的 thread_id
+                single_post = thread_posts[0].copy()
+                single_post['thread_id'] = thread_id
+                single_post['thread_posts_count'] = 1
+                thread_displays.append(single_post)
             else:
                 # 多個貼文的 Thread，需要整合
                 thread_display = self._create_thread_display(thread_posts)
+                thread_display['thread_id'] = thread_id  # 確保設置正確的 thread_id
                 thread_displays.append(thread_display)
         
         return thread_displays
@@ -201,6 +210,50 @@ class GoogleSheetsClient:
         
         return thread_display
     
+    def _ensure_thread_id_columns(self, worksheet):
+        """確保工作表包含Thread ID相關欄位"""
+        try:
+            # 獲取現有的標題行
+            if worksheet.row_count == 0:
+                logger.info("工作表為空，將添加標題行")
+                headers = [
+                    '時間', '平台', '發文者', '發文者顯示名稱', 
+                    '原始內容', '摘要內容', '重要性評分', '轉發內容',
+                    '原始貼文URL', '收集時間', '分類', '狀態', 'Post ID', 'Thread ID', 'Thread數量'
+                ]
+                worksheet.append_row(headers)
+                return
+
+            headers = worksheet.row_values(1)
+            logger.info(f"現有標題行: {headers}")
+            
+            # 檢查是否需要添加Thread ID欄位
+            needs_thread_id = 'Thread ID' not in headers
+            needs_thread_count = 'Thread數量' not in headers
+            
+            if needs_thread_id or needs_thread_count:
+                logger.info("需要更新標題行以包含Thread相關欄位")
+                
+                # 準備完整的標題行
+                new_headers = [
+                    '時間', '平台', '發文者', '發文者顯示名稱', 
+                    '原始內容', '摘要內容', '重要性評分', '轉發內容',
+                    '原始貼文URL', '收集時間', '分類', '狀態', 'Post ID', 'Thread ID', 'Thread數量'
+                ]
+                
+                # 確保工作表有足夠的列
+                if worksheet.col_count < len(new_headers):
+                    worksheet.resize(worksheet.row_count, len(new_headers))
+                
+                # 更新第一行
+                worksheet.update('1:1', [new_headers])
+                logger.info("已更新標題行包含Thread ID和Thread數量欄位")
+            else:
+                logger.info("標題行已包含所需的Thread欄位")
+                
+        except Exception as e:
+            logger.error(f"檢查/更新標題行時發生錯誤: {e}")
+    
     def get_accounts_to_track(self) -> List[Dict[str, Any]]:
         """從 Google Sheets 讀取要追蹤的帳號列表"""
         try:
@@ -229,12 +282,16 @@ class GoogleSheetsClient:
             return []
     
     def write_analyzed_posts(self, posts: List[Dict[str, Any]]) -> bool:
-        """將分析後的貼文數據寫入 Google Sheets（Thread 整合顯示）"""
+        """將重要的分析後貼文數據寫入 Google Sheets（Thread已整合，直接顯示）"""
         try:
             sheet = self.gc.open(OUTPUT_SPREADSHEET_NAME)
             
             try:
                 worksheet = sheet.worksheet(OUTPUT_WORKSHEET_NAME)
+                
+                # 檢查現有工作表的標題行，確保包含Thread ID欄位
+                self._ensure_thread_id_columns(worksheet)
+                
                 # 獲取現有的 post_ids 用於去重
                 existing_post_ids = self.get_existing_post_ids(OUTPUT_WORKSHEET_NAME)
             except gspread.WorksheetNotFound:
@@ -242,55 +299,65 @@ class GoogleSheetsClient:
                 worksheet = sheet.add_worksheet(
                     title=OUTPUT_WORKSHEET_NAME, 
                     rows=1000, 
-                    cols=14
+                    cols=15  # 增加到15列以容納Thread ID欄位
                 )
-                # 設置標題行（加入 Thread 數量）
+                # 設置標題行（加入 Thread ID 和 Thread 數量）
                 headers = [
                     '時間', '平台', '發文者', '發文者顯示名稱', 
                     '原始內容', '摘要內容', '重要性評分', '轉發內容',
-                    '原始貼文URL', '收集時間', '分類', '狀態', 'Post ID', 'Thread數量'
+                    '原始貼文URL', '收集時間', '分類', '狀態', 'Post ID', 'Thread ID', 'Thread數量'
                 ]
                 worksheet.append_row(headers)
                 existing_post_ids = {}
             
-            # 1. 將貼文按 Thread 分組並整合顯示
-            thread_displays = self.group_posts_by_thread(posts)
-            logger.info(f"Grouped {len(posts)} posts into {len(thread_displays)} thread displays")
+            # 1. 輸入的posts已經是分析並整合過的結果，直接使用
+            logger.info(f"Processing {len(posts)} analyzed items for Analyzed Posts sheet")
             
             # 2. 準備數據，過濾重複的 thread
             rows_to_add = []
             duplicates_count = 0
             
-            for thread_display in thread_displays:
-                platform = thread_display.get('platform', '').lower()
-                thread_id = thread_display.get('thread_id', thread_display.get('post_id', ''))
+            for analyzed_item in posts:
+                platform = analyzed_item.get('platform', '').lower()
+                thread_id = analyzed_item.get('thread_id', analyzed_item.get('post_id', ''))
                 
-                # 檢查是否已存在（使用 thread_id 或 post_id）
+                # 檢查是否已存在（使用 thread_id 檢查重複）
                 if platform in existing_post_ids and thread_id in existing_post_ids[platform]:
                     duplicates_count += 1
                     logger.debug(f"Skipping duplicate thread: {platform}/{thread_id}")
                     continue
                 
-                # 格式化時間（如果是 Thread 可能已經是範圍格式）
-                time_display = thread_display.get('post_time', '')
-                if not ('~' in time_display):  # 如果不是範圍格式，進行轉換
+                # 格式化時間
+                time_display = analyzed_item.get('post_time', '')
+                # 對於Thread，可能已經是合併的時間範圍格式
+                if analyzed_item.get('is_thread', False) and analyzed_item.get('post_time_range'):
+                    # Thread有時間範圍，格式化顯示
+                    start_time = self.convert_to_taiwan_time(analyzed_item['post_time_range'].get('start', ''))
+                    end_time = self.convert_to_taiwan_time(analyzed_item['post_time_range'].get('end', ''))
+                    if start_time == end_time:
+                        time_display = start_time
+                    else:
+                        time_display = f"{start_time} ~ {end_time}"
+                else:
+                    # 單一貼文，正常轉換
                     time_display = self.convert_to_taiwan_time(time_display)
                 
                 row = [
                     time_display,
-                    thread_display.get('platform', ''),
-                    thread_display.get('author_username', ''),
-                    thread_display.get('author_display_name', ''),
-                    thread_display.get('original_content', ''),
-                    thread_display.get('summary', ''),
-                    thread_display.get('importance_score', ''),
-                    thread_display.get('repost_content', ''),
-                    thread_display.get('post_url', ''),
-                    self.convert_to_taiwan_time(thread_display.get('collected_at', '')),
-                    thread_display.get('category', ''),
-                    thread_display.get('status', 'new'),
-                    thread_id,
-                    thread_display.get('thread_posts_count', 1)  # Thread 內貼文數量
+                    analyzed_item.get('platform', ''),
+                    analyzed_item.get('author_username', ''),
+                    analyzed_item.get('author_display_name', ''),
+                    analyzed_item.get('original_content', ''),
+                    analyzed_item.get('summary', ''),
+                    analyzed_item.get('importance_score', ''),
+                    analyzed_item.get('repost_content', ''),
+                    analyzed_item.get('post_url', ''),
+                    self.convert_to_taiwan_time(analyzed_item.get('collected_at', '')),
+                    analyzed_item.get('category', ''),
+                    analyzed_item.get('status', 'new'),
+                    analyzed_item.get('post_id', ''),  # Post ID (對Thread而言是主要貼文的ID)
+                    thread_id,  # Thread ID
+                    analyzed_item.get('thread_count', 1)  # Thread 內貼文數量
                 ]
                 rows_to_add.append(row)
             
@@ -369,10 +436,10 @@ class GoogleSheetsClient:
             return []
     
     def get_existing_post_ids(self, worksheet_name: str) -> Dict[str, set]:
-        """獲取已存在的貼文ID列表，按平台分組，用於去重
+        """獲取已存在的貼文ID和Thread ID列表，按平台分組，用於去重
         
         Returns:
-            Dict[str, set]: 格式為 {'platform': set(post_ids)}
+            Dict[str, set]: 格式為 {'platform': set(post_ids_and_thread_ids)}
         """
         try:
             sheet = self.gc.open(OUTPUT_SPREADSHEET_NAME)
@@ -388,35 +455,44 @@ class GoogleSheetsClient:
                 
                 # 找到必要的列索引
                 post_id_col_idx = -1
+                thread_id_col_idx = -1
                 platform_col_idx = -1
                 
                 # 嘗試不同的列名
                 for idx, header in enumerate(headers):
                     if header in ['Post ID', 'post_id', '貼文ID']:
                         post_id_col_idx = idx
+                    elif header in ['Thread ID', 'thread_id', 'Thread識別碼']:
+                        thread_id_col_idx = idx
                     elif header in ['平台', 'platform', 'Platform']:
                         platform_col_idx = idx
                 
-                if post_id_col_idx == -1 or platform_col_idx == -1:
-                    logger.warning(f"Required columns not found in {worksheet_name}")
+                if platform_col_idx == -1:
+                    logger.warning(f"Platform column not found in {worksheet_name}")
                     return {}
                 
-                # 按平台分組收集 post_id
+                # 按平台分組收集 post_id 和 thread_id
                 existing_ids = {}
                 for row in all_values[1:]:
-                    if len(row) > max(post_id_col_idx, platform_col_idx):
+                    if len(row) > platform_col_idx:
                         platform = row[platform_col_idx].lower() if row[platform_col_idx] else ''
-                        post_id = row[post_id_col_idx]
                         
-                        if platform and post_id:
+                        if platform:
                             if platform not in existing_ids:
                                 existing_ids[platform] = set()
-                            existing_ids[platform].add(post_id)
+                            
+                            # 添加 Post ID（如果存在）
+                            if post_id_col_idx != -1 and len(row) > post_id_col_idx and row[post_id_col_idx]:
+                                existing_ids[platform].add(row[post_id_col_idx])
+                            
+                            # 添加 Thread ID（如果存在）
+                            if thread_id_col_idx != -1 and len(row) > thread_id_col_idx and row[thread_id_col_idx]:
+                                existing_ids[platform].add(row[thread_id_col_idx])
                 
                 total_count = sum(len(ids) for ids in existing_ids.values())
-                logger.info(f"Found {total_count} existing post IDs in {worksheet_name}")
+                logger.info(f"Found {total_count} existing IDs (Post ID + Thread ID) in {worksheet_name}")
                 for platform, ids in existing_ids.items():
-                    logger.info(f"  {platform}: {len(ids)} posts")
+                    logger.info(f"  {platform}: {len(ids)} IDs")
                 
                 return existing_ids
                 
@@ -425,11 +501,11 @@ class GoogleSheetsClient:
                 return {}
                 
         except Exception as e:
-            logger.error(f"Failed to get existing post IDs from {worksheet_name}: {e}")
+            logger.error(f"Failed to get existing IDs from {worksheet_name}: {e}")
             return {}
     
     def write_all_posts_with_scores(self, posts: List[Dict[str, Any]]) -> bool:
-        """將所有貼文及其AI評分寫入專門的工作表"""
+        """將所有貼文及其AI評分寫入專門的工作表（展開Thread顯示每個原始貼文）"""
         try:
             sheet = self.gc.open(OUTPUT_SPREADSHEET_NAME)
             
@@ -442,24 +518,38 @@ class GoogleSheetsClient:
                 worksheet = sheet.add_worksheet(
                     title=ALL_POSTS_WORKSHEET_NAME, 
                     rows=5000, 
-                    cols=15
+                    cols=17  # 增加Thread相關欄位
                 )
-                # 設置標題行
+                # 設置標題行（添加Thread相關欄位）
                 headers = [
                     '收集時間', '平台', '發文者', '發文者顯示名稱', 
                     '貼文時間', '原始內容', '內容預覽', 
                     'AI重要性評分', '評分狀態', '人工評分', '評分差異', '文字反饋',
-                    '原始貼文URL', 'Post ID', '分類', '備註'
+                    '原始貼文URL', 'Post ID', 'Thread ID', '是否Thread的一部分', '分類', '備註'
                 ]
                 worksheet.append_row(headers)
                 logger.info(f"Created new worksheet: {ALL_POSTS_WORKSHEET_NAME}")
                 existing_post_ids = {}
             
+            # 展開分析結果，將Thread中的每個貼文都作為獨立行
+            all_individual_posts = []
+            for analyzed_item in posts:
+                if analyzed_item.get('is_thread', False) and 'individual_posts_for_all_sheet' in analyzed_item:
+                    # 這是一個Thread，展開為個別貼文
+                    individual_posts = analyzed_item['individual_posts_for_all_sheet']
+                    all_individual_posts.extend(individual_posts)
+                    logger.info(f"Expanded thread {analyzed_item.get('thread_id')} into {len(individual_posts)} individual posts")
+                else:
+                    # 這是單獨貼文，直接添加
+                    all_individual_posts.append(analyzed_item)
+            
+            logger.info(f"Total individual posts to write: {len(all_individual_posts)}")
+            
             # 準備數據，過濾重複的 post_id
             rows_to_add = []
             duplicates_count = 0
             
-            for post in posts:
+            for post in all_individual_posts:
                 platform = post.get('platform', '').lower()
                 post_id = post.get('post_id', '')
                 
@@ -499,6 +589,8 @@ class GoogleSheetsClient:
                     post.get('text_feedback', ''),
                     post.get('post_url', ''),
                     post.get('post_id', ''),
+                    post.get('thread_id', ''),  # Thread ID
+                    '是' if post.get('is_part_of_thread', False) else '否',  # 是否Thread的一部分
                     post.get('category', ''),
                     post.get('notes', '')
                 ]

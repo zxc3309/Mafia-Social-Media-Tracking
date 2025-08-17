@@ -104,10 +104,13 @@ class AIClient:
         try:
             # 嘗試不同的時間格式
             formats = [
-                '%Y-%m-%dT%H:%M:%S.%fZ',  # ISO format with microseconds
-                '%Y-%m-%dT%H:%M:%SZ',     # ISO format without microseconds
+                '%Y-%m-%dT%H:%M:%S.%fZ',  # ISO format with microseconds and Z
+                '%Y-%m-%dT%H:%M:%SZ',     # ISO format without microseconds but with Z
+                '%Y-%m-%dT%H:%M:%S.%f',   # ISO format with microseconds, no timezone
+                '%Y-%m-%dT%H:%M:%S',      # ISO format without timezone
                 '%Y-%m-%d %H:%M:%S',      # Simple format
                 '%Y-%m-%dT%H:%M:%S+00:00',# ISO with timezone
+                '%Y-%m-%d %H:%M:%S.%f',   # Simple format with microseconds
             ]
             
             for fmt in formats:
@@ -425,8 +428,11 @@ class AIClient:
     def batch_analyze(self, posts: list, batch_size: int = 5) -> list:
         """
         批量分析貼文（支援 Thread 整合）
+        
+        Returns:
+            list: 分析後的結果，Thread 只返回一個整合的項目
         """
-        analyzed_posts = []
+        analyzed_results = []
         
         # 1. 檢測並分組 Threads
         threads = self.detect_and_group_threads(posts)
@@ -444,9 +450,9 @@ class AIClient:
                     post['thread_id'] = thread_id
                     analyzed_post = self._analyze_single_post(post)
                     if analyzed_post:
-                        analyzed_posts.append(analyzed_post)
+                        analyzed_results.append(analyzed_post)
                 else:
-                    # Thread 分析：合併內容後分析，然後套用到所有貼文
+                    # Thread 分析：合併內容後分析，返回一個整合的結果
                     merged_thread = self.merge_thread_content(thread_posts)
                     merged_thread['thread_id'] = thread_id
                     
@@ -454,18 +460,16 @@ class AIClient:
                     thread_analysis = self._analyze_single_post(merged_thread)
                     
                     if thread_analysis:
-                        # 將分析結果套用到 Thread 內的每個貼文
-                        for post in thread_posts:
-                            analyzed_post = post.copy()
-                            analyzed_post.update({
-                                'thread_id': thread_id,
-                                'importance_score': thread_analysis['importance_score'],
-                                'summary': thread_analysis.get('summary', ''),
-                                'repost_content': thread_analysis.get('repost_content', ''),
-                                'is_part_of_thread': True,
-                                'thread_count': len(thread_posts)
-                            })
-                            analyzed_posts.append(analyzed_post)
+                        # 為 Thread 添加原始貼文資訊，但只返回一個整合的結果
+                        thread_analysis.update({
+                            'is_thread': True,
+                            'thread_count': len(thread_posts),
+                            'thread_posts': thread_posts,  # 保留原始貼文列表供後續使用
+                            'individual_posts_for_all_sheet': self._prepare_individual_posts_for_thread(
+                                thread_posts, thread_id, thread_analysis
+                            )
+                        })
+                        analyzed_results.append(thread_analysis)
                 
                 # 避免API調用過於頻繁
                 time.sleep(1)
@@ -474,8 +478,27 @@ class AIClient:
                 logger.error(f"Error analyzing thread: {e}")
                 continue
         
-        logger.info(f"Successfully analyzed {len(analyzed_posts)} posts from {len(threads)} threads")
-        return analyzed_posts
+        logger.info(f"Successfully analyzed {len(analyzed_results)} items from {len(threads)} threads")
+        return analyzed_results
+    
+    def _prepare_individual_posts_for_thread(self, thread_posts: List[Dict[str, Any]], 
+                                           thread_id: str, thread_analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """為 Thread 中的每個貼文準備個別的資料（用於 All Posts sheet）"""
+        individual_posts = []
+        
+        for post in thread_posts:
+            individual_post = post.copy()
+            individual_post.update({
+                'thread_id': thread_id,
+                'importance_score': thread_analysis['importance_score'],
+                'summary': thread_analysis.get('summary', ''),
+                'repost_content': thread_analysis.get('repost_content', ''),
+                'is_part_of_thread': True,
+                'thread_count': len(thread_posts)
+            })
+            individual_posts.append(individual_post)
+        
+        return individual_posts
     
     def _analyze_single_post(self, post: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """分析單個貼文（或合併的 Thread）"""
