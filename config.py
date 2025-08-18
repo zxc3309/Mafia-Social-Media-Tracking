@@ -11,8 +11,8 @@ AI_API_KEY = os.getenv("AI_API_KEY")
 AI_API_TYPE = os.getenv("AI_API_TYPE", "openai")  # "openai" or "anthropic"
 
 # Google Sheets 配置
-INPUT_SPREADSHEET_NAME = os.getenv("INPUT_SPREADSHEET_NAME", "Social Media Tracking")
-OUTPUT_SPREADSHEET_NAME = os.getenv("OUTPUT_SPREADSHEET_NAME", "Social Media Tracking")
+INPUT_SPREADSHEET_NAME = os.getenv("INPUT_SPREADSHEET_NAME", "Mafia Social Media Tracking")
+OUTPUT_SPREADSHEET_NAME = os.getenv("OUTPUT_SPREADSHEET_NAME", "Mafia Social Media Tracking")
 INPUT_WORKSHEET_NAME = os.getenv("INPUT_WORKSHEET_NAME", "Accounts")
 OUTPUT_WORKSHEET_NAME = os.getenv("OUTPUT_WORKSHEET_NAME", "Analyzed Posts")
 
