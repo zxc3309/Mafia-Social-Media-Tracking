@@ -19,18 +19,54 @@ class NitterClient:
     def __init__(self):
         self.instances = NITTER_INSTANCES or []
         self.timeout = httpx.Timeout(30.0)
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        # 隨機 User-Agent 池
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0'
+        ]
+        self.working_instances = []
+        self.last_instance_check = None
+        self.instance_check_interval = 900  # 15分鐘檢查一次
+        self.instance_stats = {}  # 實例統計信息
+        
+    def _get_random_headers(self) -> Dict[str, str]:
+        """獲取隨機 User-Agent 和 headers"""
+        return {
+            'User-Agent': random.choice(self.user_agents),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'DNT': '1',
             'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none'
         }
-        self.working_instances = []
-        self.last_instance_check = None
-        self.instance_check_interval = 3600  # 每小時檢查一次
+    
+    def _sort_instances_by_performance(self, instances: List[str]) -> List[str]:
+        """根據性能排序實例"""
+        def get_performance_score(instance: str) -> float:
+            if instance not in self.instance_stats:
+                return 0
+            
+            stats = self.instance_stats[instance]
+            total_requests = stats['success_count'] + stats['fail_count']
+            if total_requests == 0:
+                return 0
+            
+            success_rate = stats['success_count'] / total_requests
+            response_time = stats['avg_response_time']
+            
+            # 綜合評分：成功率 * 0.7 + (1 / 響應時間) * 0.3
+            score = success_rate * 0.7 + (1 / max(response_time, 0.1)) * 0.3
+            return score
+        
+        return sorted(instances, key=get_performance_score, reverse=True)
         
     def _get_working_instance(self) -> Optional[str]:
         """獲取一個可用的 Nitter 實例"""
@@ -46,28 +82,74 @@ class NitterClient:
         return None
         
     def _check_instances(self):
-        """檢查哪些 Nitter 實例可用"""
-        logger.info("Checking Nitter instances availability...")
+        """檢查哪些 Nitter 實例可用（改進版：測試實際用戶頁面）"""
+        logger.info("Checking Nitter instances availability with improved testing...")
         self.working_instances = []
+        test_username = "pendle_fi"  # 使用已知存在的用戶作為測試
         
         for instance in self.instances:
             try:
                 # 清理實例 URL
                 instance = instance.strip().rstrip('/')
                 
-                # 測試實例是否可用
-                with httpx.Client(timeout=httpx.Timeout(10.0)) as client:
-                    response = client.get(f"{instance}/Twitter", headers=self.headers)
+                # 初始化實例統計
+                if instance not in self.instance_stats:
+                    self.instance_stats[instance] = {
+                        'success_count': 0,
+                        'fail_count': 0,
+                        'last_success': None,
+                        'avg_response_time': 0
+                    }
+                
+                # 使用隨機 User-Agent
+                headers = self._get_random_headers()
+                
+                # 測試實際用戶頁面而非通用頁面
+                start_time = time.time()
+                with httpx.Client(timeout=httpx.Timeout(15.0)) as client:
+                    response = client.get(f"{instance}/{test_username}", headers=headers)
+                    response_time = time.time() - start_time
+                    
                     if response.status_code == 200:
-                        self.working_instances.append(instance)
-                        logger.info(f"✓ Nitter instance working: {instance}")
+                        # 檢查頁面是否真的有內容
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(response.text, 'html.parser')
+                        timeline_items = soup.find_all('div', class_='timeline-item')
+                        
+                        if len(timeline_items) > 0:
+                            self.working_instances.append(instance)
+                            self.instance_stats[instance]['success_count'] += 1
+                            self.instance_stats[instance]['last_success'] = time.time()
+                            self.instance_stats[instance]['avg_response_time'] = response_time
+                            logger.info(f"✓ Nitter instance working: {instance} ({response_time:.2f}s, {len(timeline_items)} tweets)")
+                        else:
+                            self.instance_stats[instance]['fail_count'] += 1
+                            logger.warning(f"✗ Nitter instance has no content: {instance}")
+                    elif response.status_code == 429:
+                        logger.warning(f"✗ Nitter instance rate limited: {instance}")
+                        self.instance_stats[instance]['fail_count'] += 1
                     else:
                         logger.warning(f"✗ Nitter instance returned {response.status_code}: {instance}")
+                        self.instance_stats[instance]['fail_count'] += 1
+                        
             except Exception as e:
                 logger.warning(f"✗ Nitter instance failed: {instance} - {e}")
+                if instance in self.instance_stats:
+                    self.instance_stats[instance]['fail_count'] += 1
                 
+            # 添加隨機延遲避免被封
+            time.sleep(random.uniform(1, 3))
+                
+        # 按成功率和響應時間排序可用實例
+        self.working_instances = self._sort_instances_by_performance(self.working_instances)
         self.last_instance_check = time.time()
         logger.info(f"Found {len(self.working_instances)} working Nitter instances")
+        
+        # 記錄實例統計
+        for instance in self.instance_stats:
+            stats = self.instance_stats[instance]
+            success_rate = stats['success_count'] / (stats['success_count'] + stats['fail_count']) * 100 if (stats['success_count'] + stats['fail_count']) > 0 else 0
+            logger.debug(f"Instance {instance}: {success_rate:.1f}% success rate, avg {stats['avg_response_time']:.2f}s")
         
     def get_user_tweets(self, username: str, days_back: int = 1) -> List[Dict[str, Any]]:
         """從 Nitter 獲取用戶推文"""
@@ -84,8 +166,14 @@ class NitterClient:
                 url = f"{instance}/{username}"
                 logger.info(f"Fetching tweets from Nitter: {url}")
                 
+                # 使用隨機 headers 和延遲
+                headers = self._get_random_headers()
+                
                 with httpx.Client(timeout=self.timeout) as client:
-                    response = client.get(url, headers=self.headers)
+                    response = client.get(url, headers=headers)
+                    
+                    # 添加隨機延遲避免被檢測
+                    time.sleep(random.uniform(2, 5))
                     
                     if response.status_code == 404:
                         logger.warning(f"User {username} not found on Nitter")

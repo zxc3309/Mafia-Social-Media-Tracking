@@ -121,16 +121,18 @@ if os.getenv("X_SCRAPER_ACCOUNTS"):
                 "password": password.strip()
             })
 
-# Nitter 實例配置（備用方案）
+# Nitter 實例配置（備用方案）- 2025年1月更新
+# 基於測試結果，只保留可用的實例
 default_nitter_instances = [
-    "https://twitt.re",
-    "https://xcancel.com",
-    "https://nitter.poast.org",
-    "https://nitter.privacydev.net",
-    "https://nitter.pek.li",
-    "https://nitter.aishiteiru.moe",
-    "https://nitter.aosus.link",
-    "https://nitter.dashy.a3x.dn.nyx.im"
+    "https://nitter.pek.li",           # 測試通過：2.07s響應，20條推文
+    "https://nitter.aishiteiru.moe",   # 測試通過：1.95s響應，20條推文（用戶頁面可用）
+    # 以下實例在測試中失效，但保留以備後續恢復
+    # "https://twitt.re",              # Status 418 - I'm a teapot
+    # "https://xcancel.com",           # Status 403 - Forbidden  
+    # "https://nitter.poast.org",      # Status 503 - Service Unavailable
+    # "https://nitter.privacydev.net", # Connection refused
+    # "https://nitter.aosus.link",     # 響應正常但無推文內容
+    # "https://nitter.dashy.a3x.dn.nyx.im" # Status 429 - Rate limited
 ]
 NITTER_INSTANCES = os.getenv("NITTER_INSTANCES", ",".join(default_nitter_instances)).split(",") if os.getenv("NITTER_INSTANCES") else default_nitter_instances
 
