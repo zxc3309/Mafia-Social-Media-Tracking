@@ -195,7 +195,14 @@ class AIClient:
         """
         # 優先從數據庫獲取活躍的prompt版本
         prompt_template = self._get_active_importance_prompt()
-        prompt = prompt_template.format(post_content=post_content, author=author)
+        
+        # 安全地格式化 prompt
+        try:
+            prompt = prompt_template.format(post_content=post_content, author=author)
+        except KeyError as e:
+            logger.warning(f"Format error in prompt template: {e}, using string replacement")
+            # 使用字符串替換作為備用方案
+            prompt = prompt_template.replace("{post_content}", post_content).replace("{author}", author)
         
         for attempt in range(max_retries):
             try:
@@ -285,28 +292,65 @@ class AIClient:
     
     
     def _call_openai(self, prompt: str, max_tokens: int = 150) -> Optional[str]:
-        """調用 GPT-4o"""
+        """調用 OpenAI Response API with web search"""
         try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=max_tokens
+            logger.debug("Using Response API with web search")
+            return self._call_openai_response_api(prompt, max_tokens)
+                
+        except Exception as e:
+            logger.error(f"Error calling OpenAI API: {e}")
+            raise
+    
+    def _call_openai_response_api(self, prompt: str, max_tokens: int = 150) -> Optional[str]:
+        """調用 OpenAI Response API（GPT-5 minimal reasoning，無 web search）"""
+        try:
+            # GPT-5 使用 minimal reasoning 以提升速度，不使用 web_search
+            response = self.openai_client.responses.create(
+                model="gpt-5",
+                input=prompt,
+                reasoning={
+                    "effort": "minimal"  # 最快速度
+                }
+                # 移除 web_search 工具以支援 minimal reasoning
             )
             
-            return response.choices[0].message.content
+            # 提取文本內容
+            text_content = self._extract_text_from_response(response)
+            return text_content
             
         except openai.RateLimitError:
             logger.warning("OpenAI rate limit reached, waiting...")
             time.sleep(60)
             raise
         except openai.APIError as e:
-            logger.error(f"OpenAI API error: {e}")
+            logger.error(f"OpenAI Response API error: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error calling OpenAI: {e}")
+            logger.error(f"Unexpected error calling OpenAI Response API: {e}")
             raise
+    
+    def _extract_text_from_response(self, response) -> Optional[str]:
+        """從 Response API 回應中提取文本內容（支援 GPT-5 推理結構）"""
+        try:
+            for output_item in response.output:
+                # GPT-5: 查找 ResponseOutputMessage 類型的輸出
+                if hasattr(output_item, 'type') and output_item.type == 'message':
+                    if hasattr(output_item, 'content') and output_item.content:
+                        for content_item in output_item.content:
+                            if hasattr(content_item, 'text'):
+                                return content_item.text
+                
+                # GPT-4o: 向後兼容舊結構
+                elif hasattr(output_item, 'content') and output_item.content:
+                    for content_item in output_item.content:
+                        if hasattr(content_item, 'text'):
+                            return content_item.text
+            
+            return None
+        except Exception as e:
+            logger.error(f"提取 Response API 文本失敗: {e}")
+            return None
+    
     
     def _call_anthropic(self, prompt: str, max_tokens: int = 150) -> Optional[str]:
         """調用Anthropic API"""
