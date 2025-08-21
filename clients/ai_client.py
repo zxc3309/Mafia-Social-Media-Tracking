@@ -189,9 +189,12 @@ class AIClient:
         
         return merged_post
     
-    def analyze_importance(self, post_content: str, author: str = "", max_retries: int = 3) -> Optional[float]:
+    def analyze_importance(self, post_content: str, author: str = "", max_retries: int = 3) -> tuple[Optional[float], Optional[str]]:
         """
-        分析貼文重要性，返回1-10的評分
+        分析貼文重要性，返回1-10的評分和評分理由
+        
+        Returns:
+            tuple[score, reasoning]: (評分, 評分理由)
         """
         # 優先從數據庫獲取活躍的prompt版本
         prompt_template = self._get_active_importance_prompt()
@@ -207,19 +210,20 @@ class AIClient:
         for attempt in range(max_retries):
             try:
                 if self.api_type == "openai":
-                    response = self._call_openai(prompt, max_tokens=50)
+                    response = self._call_openai(prompt, max_tokens=300)  # 增加 token 限制以獲取完整理由
                 elif self.api_type == "anthropic":
-                    response = self._call_anthropic(prompt, max_tokens=50)
+                    response = self._call_anthropic(prompt, max_tokens=300)
                 else:
                     logger.error(f"Unsupported API type: {self.api_type}")
-                    return None
+                    return None, None
                 
-                # 從回應中提取數字評分
+                # 先嘗試解析 JSON 格式的回應
                 logger.debug(f"AI response (length={len(response) if response else 0}): {response}")
-                score = self._extract_score(response)
+                score, reasoning = self._extract_score_and_reasoning(response)
+                
                 if score is not None:
-                    logger.debug(f"Importance score: {score} for content preview: {post_content[:50]}...")
-                    return score
+                    logger.debug(f"Importance score: {score}, reasoning: {reasoning[:50]}... for content preview: {post_content[:50]}...")
+                    return score, reasoning
                 else:
                     logger.warning(f"Could not extract score from response (length={len(response) if response else 0}): {response}")
                     
@@ -228,7 +232,7 @@ class AIClient:
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)  # 指數退避
                 
-        return None
+        return None, None
     
     def summarize_content(self, post_content: str, max_retries: int = 3) -> Optional[str]:
         """
@@ -376,7 +380,38 @@ class AIClient:
             logger.error(f"Unexpected error calling Anthropic: {e}")
             raise
     
-    def _extract_score(self, response: str) -> Optional[float]:
+    def _extract_score_and_reasoning(self, response: str) -> tuple[Optional[float], Optional[str]]:
+        """從AI回應中提取評分和理由"""
+        if not response:
+            return None, None
+            
+        import json
+        import re
+        
+        # 首先嘗試解析 JSON 格式
+        try:
+            # 清理回應，移除可能的前後文本
+            json_match = re.search(r'\{[^{}]*"score"[^{}]*\}', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                result = json.loads(json_str)
+                
+                score = result.get('score')
+                reasoning = result.get('reasoning', '')
+                
+                if score is not None:
+                    score = float(score)
+                    if 1 <= score <= 10:
+                        return score, reasoning
+                        
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            logger.debug(f"JSON parsing failed: {e}")
+        
+        # 備用方案：使用舊的數字提取方法
+        score = self._extract_score_fallback(response)
+        return score, "" if score else (None, None)
+    
+    def _extract_score_fallback(self, response: str) -> Optional[float]:
         """從AI回應中提取數字評分"""
         if not response:
             return None
@@ -535,6 +570,7 @@ class AIClient:
             individual_post.update({
                 'thread_id': thread_id,
                 'importance_score': thread_analysis['importance_score'],
+                'importance_reasoning': thread_analysis.get('importance_reasoning', ''),
                 'summary': thread_analysis.get('summary', ''),
                 'repost_content': thread_analysis.get('repost_content', ''),
                 'is_part_of_thread': True,
@@ -555,8 +591,8 @@ class AIClient:
                 logger.warning(f"Empty content for post {post.get('post_id')}")
                 return None
             
-            # 分析重要性（包含作者信息）
-            importance_score = self.analyze_importance(content, author)
+            # 分析重要性（包含作者信息和理由）
+            importance_score, importance_reasoning = self.analyze_importance(content, author)
             
             # 如果重要性評分失敗，跳過這篇貼文
             if importance_score is None:
@@ -566,6 +602,7 @@ class AIClient:
             # 準備分析後的貼文數據
             analyzed_post = post.copy()
             analyzed_post['importance_score'] = importance_score
+            analyzed_post['importance_reasoning'] = importance_reasoning or ""
             
             # 只對重要的貼文進行摘要和轉發內容生成
             from config import IMPORTANCE_THRESHOLD

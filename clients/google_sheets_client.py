@@ -299,12 +299,12 @@ class GoogleSheetsClient:
                 worksheet = sheet.add_worksheet(
                     title=OUTPUT_WORKSHEET_NAME, 
                     rows=1000, 
-                    cols=15  # 增加到15列以容納Thread ID欄位
+                    cols=16  # 增加到16列以容納AI評分邏輯欄位
                 )
-                # 設置標題行（加入 Thread ID 和 Thread 數量）
+                # 設置標題行（加入 Thread ID、Thread 數量和AI評分邏輯）
                 headers = [
                     '時間', '平台', '發文者', '發文者顯示名稱', 
-                    '原始內容', '摘要內容', '重要性評分', '轉發內容',
+                    '原始內容', '摘要內容', '重要性評分', 'AI評分邏輯', '轉發內容',
                     '原始貼文URL', '收集時間', '分類', '狀態', 'Post ID', 'Thread ID', 'Thread數量'
                 ]
                 worksheet.append_row(headers)
@@ -350,6 +350,7 @@ class GoogleSheetsClient:
                     analyzed_item.get('original_content', ''),
                     analyzed_item.get('summary', ''),
                     analyzed_item.get('importance_score', ''),
+                    analyzed_item.get('importance_reasoning', ''),  # 新增AI評分邏輯
                     analyzed_item.get('repost_content', ''),
                     analyzed_item.get('post_url', ''),
                     self.convert_to_taiwan_time(analyzed_item.get('collected_at', '')),
@@ -518,13 +519,13 @@ class GoogleSheetsClient:
                 worksheet = sheet.add_worksheet(
                     title=ALL_POSTS_WORKSHEET_NAME, 
                     rows=5000, 
-                    cols=17  # 增加Thread相關欄位
+                    cols=18  # 增加Thread相關欄位和AI評分邏輯欄位
                 )
-                # 設置標題行（添加Thread相關欄位）
+                # 設置標題行（添加Thread相關欄位和AI評分邏輯）
                 headers = [
                     '收集時間', '平台', '發文者', '發文者顯示名稱', 
                     '貼文時間', '原始內容', '內容預覽', 
-                    'AI重要性評分', '評分狀態', '人工評分', '評分差異', '文字反饋',
+                    'AI重要性評分', 'AI評分邏輯', '評分狀態', '人工評分', '評分差異', '文字反饋',
                     '原始貼文URL', 'Post ID', 'Thread ID', '是否Thread的一部分', '分類', '備註'
                 ]
                 worksheet.append_row(headers)
@@ -583,6 +584,7 @@ class GoogleSheetsClient:
                     content,
                     content_preview,
                     ai_score,
+                    post.get('importance_reasoning', ''),  # 新增AI評分邏輯
                     post.get('scoring_status', 'auto'),
                     human_score,
                     score_diff,
