@@ -6,7 +6,7 @@ from clients.x_client import XClient
 from clients.linkedin_client import LinkedInClient
 from clients.ai_client import AIClient
 from models.database import db_manager
-from config import PLATFORMS, IMPORTANCE_THRESHOLD, SCRAPER_CONFIG, NITTER_INSTANCES, TWITTER_CLIENT_PRIORITY, OUTPUT_WORKSHEET_NAME, ALL_POSTS_WORKSHEET_NAME
+from config import PLATFORMS, IMPORTANCE_THRESHOLD, SCRAPER_CONFIG, NITTER_INSTANCES, TWITTER_CLIENT_PRIORITY, OUTPUT_WORKSHEET_NAME, ALL_POSTS_WORKSHEET_NAME, TWITTER_AUTH_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,10 @@ class PostCollector:
             client_type = client_type.strip().lower()
             
             try:
-                if client_type == "nitter":
+                if client_type == "auth":
+                    if self._try_auth_client():
+                        return
+                elif client_type == "nitter":
                     if self._try_nitter_client():
                         return
                 elif client_type == "scraper":
@@ -60,6 +63,46 @@ class PostCollector:
         logger.error("All Twitter clients failed, using API as last resort")
         self.x_client = XClient()
         logger.info("X (Twitter) API client initialized (emergency fallback)")
+    
+    def _try_auth_client(self) -> bool:
+        """嘗試初始化 XAuthClient（帳號密碼認證）"""
+        if not TWITTER_AUTH_CONFIG.get('enabled', True):
+            logger.info("XAuthClient not enabled in config, skipping")
+            return False
+            
+        if not TWITTER_AUTH_CONFIG.get('username') or not TWITTER_AUTH_CONFIG.get('password'):
+            logger.warning("Twitter username/password not configured for XAuthClient, skipping")
+            return False
+            
+        try:
+            from clients.x_auth_client import XAuthClientSync
+            
+            # 先檢查配置可用性
+            if not TWITTER_AUTH_CONFIG.get('username') or not TWITTER_AUTH_CONFIG.get('password'):
+                logger.warning("Twitter username/password not configured for XAuthClient")
+                return False
+                
+            auth_client = XAuthClientSync()
+            
+            # 只做基本檢查，不實際初始化（避免登入失敗）
+            if auth_client.is_available():
+                # 嘗試測試一個簡單的請求來驗證
+                try:
+                    # 這裡不做實際的推文獲取，只是設置客戶端
+                    self.x_client = auth_client
+                    logger.info("✓ X (Twitter) Auth client initialized successfully")
+                    logger.info(f"Using account: {TWITTER_AUTH_CONFIG.get('username')}")
+                    return True
+                except Exception as test_e:
+                    logger.warning(f"XAuthClient test failed: {test_e}")
+                    return False
+            else:
+                logger.warning("✗ XAuthClient not available")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"XAuthClient initialization failed: {e}")
+            return False
     
     def _try_nitter_client(self) -> bool:
         """嘗試初始化 Nitter 客戶端"""

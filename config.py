@@ -3,8 +3,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 # API Keys 和憑證配置
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH", "credentials/service-account.json")
+# X API 配置 - 僅作為最後備案使用
 X_API_BEARER_TOKEN = os.getenv("X_API_BEARER_TOKEN")
 LINKEDIN_API_KEY = os.getenv("LINKEDIN_API_KEY")
 AI_API_KEY = os.getenv("AI_API_KEY")
@@ -75,8 +77,8 @@ REPOST_GENERATION_PROMPT = os.getenv("REPOST_GENERATION_PROMPT", """
 """)
 
 # Twitter 客戶端優先順序配置
-# 可選值: "nitter", "scraper", "api"
-TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "nitter,scraper,api").split(",")
+# 可選值: "auth", "nitter", "scraper", "api"
+TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "nitter,auth,api").split(",")
 
 # 平台配置
 PLATFORMS = {
@@ -135,6 +137,18 @@ default_nitter_instances = [
     # "https://nitter.dashy.a3x.dn.nyx.im" # Status 429 - Rate limited
 ]
 NITTER_INSTANCES = os.getenv("NITTER_INSTANCES", ",".join(default_nitter_instances)).split(",") if os.getenv("NITTER_INSTANCES") else default_nitter_instances
+
+# Twitter 認證客戶端配置
+TWITTER_AUTH_CONFIG = {
+    "enabled": os.getenv("TWITTER_USE_AUTH_CLIENT", "true").lower() == "true",
+    "username": os.getenv("TWITTER_USERNAME"),
+    "password": os.getenv("TWITTER_PASSWORD"),
+    "email": os.getenv("TWITTER_EMAIL"),  # 可選，用於 email 驗證
+    "totp_secret": os.getenv("TWITTER_2FA_SECRET"),  # 可選，用於 2FA
+    "cookie_cache_days": int(os.getenv("TWITTER_COOKIE_CACHE_DAYS", "7")),
+    "auto_refresh": os.getenv("TWITTER_AUTO_REFRESH_SESSION", "true").lower() == "true",
+    "bearer_token": "AAAAAAAAAAAAAAAAAAAAAFQODgEAAAAAVHTp76lzh3rFzcHbmHVvQxYYpTw%3DckAlMINMjmCwxUcaXbAN4XqJVdgMJaHqNOFgPMK0zN1qLqLQCF"  # Twitter 官方前端固定 token
+}
 
 # 重要性篩選閾值
 IMPORTANCE_THRESHOLD = int(os.getenv("IMPORTANCE_THRESHOLD", "8"))
