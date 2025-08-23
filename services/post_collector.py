@@ -123,19 +123,26 @@ class PostCollector:
     
     def _try_scraper_client(self) -> bool:
         """嘗試初始化 Scraper 客戶端"""
-        if not SCRAPER_CONFIG.get('use_scraper', False):
-            logger.info("Scraper not enabled in config, skipping")
-            return False
+        try:
+            from clients.x_scraper_client import XScraperClientSync
+            self.x_client = XScraperClientSync()
             
-        if not SCRAPER_CONFIG.get('accounts'):
-            logger.warning("No scraper accounts configured, skipping")
-            return False
+            accounts_count = len(SCRAPER_CONFIG.get('accounts', []))
+            if accounts_count > 0:
+                logger.info("✓ X (Twitter) scraper client initialized successfully")
+                logger.info(f"Using {accounts_count} scraper accounts")
+            else:
+                logger.info("✓ X (Twitter) scraper client initialized (no-login mode)")
+                logger.info("Will attempt scraping without authentication")
             
-        from clients.x_scraper_client import XScraperClientSync
-        self.x_client = XScraperClientSync()
-        logger.info("✓ X (Twitter) scraper client initialized successfully")
-        logger.info(f"Using {len(SCRAPER_CONFIG.get('accounts', []))} scraper accounts")
-        return True
+            return True
+            
+        except ImportError as e:
+            logger.warning(f"Scraper dependencies not available: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"Scraper client initialization failed: {e}")
+            return False
     
     def _try_api_client(self) -> bool:
         """嘗試初始化 API 客戶端"""
@@ -285,6 +292,16 @@ class PostCollector:
         
         finally:
             results['end_time'] = datetime.utcnow().isoformat()
+            
+            # Send Telegram report if enabled and there are important posts
+            try:
+                if results.get('important_posts', 0) > 0:
+                    from services.report_generator import ReportGenerator
+                    report_generator = ReportGenerator()
+                    report_generator.send_daily_report(results)
+            except Exception as e:
+                logger.error(f"Failed to send Telegram report: {e}")
+                # Don't fail the main process if Telegram fails
         
         return results
     

@@ -257,7 +257,7 @@ class XScraperClient:
             await self._random_delay()
             
             # 點擊下一步
-            next_button = await self.page.query_selector('text="Next"')
+            next_button = await self.page.query_selector('text=Next')
             if next_button:
                 await next_button.click()
                 await self._random_delay()
@@ -269,7 +269,7 @@ class XScraperClient:
             await self._random_delay()
             
             # 點擊登入
-            login_button = await self.page.query_selector('text="Log in"')
+            login_button = await self.page.query_selector('text=Log in')
             if login_button:
                 await login_button.click()
                 await self.page.wait_for_load_state('networkidle')
@@ -306,8 +306,8 @@ class XScraperClient:
             await self.page.goto(user_url, wait_until='networkidle')
             await self._random_delay()
             
-            # 檢查用戶是否存在
-            if await self.page.query_selector('text="This account doesn't exist"'):
+            # 檢查用戶是否存在  
+            if await self.page.query_selector("text=This account doesn't exist"):
                 logger.warning(f"User {username} not found")
                 return posts
                 

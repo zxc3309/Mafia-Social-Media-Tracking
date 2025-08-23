@@ -548,6 +548,8 @@ def main():
     group.add_argument('--view-data', action='store_true', help='查看數據庫內容和AI評分')
     group.add_argument('--review', action='store_true', help='人工審核AI評分系統')
     group.add_argument('--optimize-prompt', action='store_true', help='優化AI分析prompt')
+    group.add_argument('--test-telegram', action='store_true', help='測試 Telegram Bot 連接')
+    group.add_argument('--ensure-prompts-worksheet', action='store_true', help='確保 AI Prompts worksheet 存在')
     
     args = parser.parse_args()
     
@@ -609,6 +611,61 @@ def main():
         elif args.optimize_prompt:
             success = optimize_ai_prompt()
             return 0 if success else 1
+        
+        elif args.test_telegram:
+            # 測試 Telegram Bot
+            from services.report_generator import ReportGenerator
+            from clients.telegram_client import TelegramClient
+            
+            print("測試 Telegram Bot 連接...")
+            telegram = TelegramClient()
+            
+            if not telegram.enabled:
+                print("❌ Telegram 未啟用，請在 .env 中設置：")
+                print("   TELEGRAM_ENABLED=true")
+                print("   TELEGRAM_BOT_TOKEN=your_bot_token")
+                print("   TELEGRAM_CHAT_ID=your_chat_id")
+                return 1
+                
+            if telegram.test_connection():
+                print("✅ Telegram Bot 連接成功！")
+                
+                # 發送測試報告
+                test_report = """🧪 *Test Report*
+                
+This is a test message from your Social Media Tracking system.
+
+If you receive this message, your Telegram bot is configured correctly!
+
+📊 Sample Statistics:
+• Posts Analyzed: 45
+• Important Posts: 5
+
+_Configuration successful!_"""
+                
+                if telegram.send_message(test_report):
+                    print("✅ 測試報告發送成功！")
+                else:
+                    print("❌ 測試報告發送失敗")
+            else:
+                print("❌ Telegram Bot 連接失敗，請檢查配置")
+            
+            return 0
+            
+        elif args.ensure_prompts_worksheet:
+            # 確保 AI Prompts worksheet 存在
+            from clients.google_sheets_client import GoogleSheetsClient
+            
+            print("確保 AI Prompts worksheet 存在...")
+            sheets = GoogleSheetsClient()
+            
+            if sheets.ensure_prompts_worksheet_exists():
+                print("✅ AI Prompts worksheet 已準備就緒")
+                print("   您現在可以在 Google Sheets 中編輯 prompts")
+            else:
+                print("❌ 無法創建 AI Prompts worksheet")
+                
+            return 0
             
     except KeyboardInterrupt:
         logger.info("Program interrupted by user")

@@ -123,18 +123,20 @@ if os.getenv("X_SCRAPER_ACCOUNTS"):
                 "password": password.strip()
             })
 
-# Nitter 實例配置（備用方案）- 2025年1月更新
-# 基於測試結果，只保留可用的實例
+# Nitter 實例配置（備用方案）- 2025年8月更新
+# 基於 GitHub Wiki 和狀態監控的可用實例
 default_nitter_instances = [
-    "https://nitter.pek.li",           # 測試通過：2.07s響應，20條推文
-    "https://nitter.aishiteiru.moe",   # 測試通過：1.95s響應，20條推文（用戶頁面可用）
-    # 以下實例在測試中失效，但保留以備後續恢復
-    # "https://twitt.re",              # Status 418 - I'm a teapot
-    # "https://xcancel.com",           # Status 403 - Forbidden  
-    # "https://nitter.poast.org",      # Status 503 - Service Unavailable
-    # "https://nitter.privacydev.net", # Connection refused
-    # "https://nitter.aosus.link",     # 響應正常但無推文內容
-    # "https://nitter.dashy.a3x.dn.nyx.im" # Status 429 - Rate limited
+    #"https://xcancel.com",             # 官方 Wiki 推薦
+    #"https://nitter.poast.org",        # 官方 Wiki 推薦
+    #"https://lightbrd.com",            # 官方 Wiki 推薦
+    #"https://nitter.space",            # 官方 Wiki 推薦
+    #"https://nitter.tiekoetter.com",   # 官方 Wiki 推薦
+    #"https://nuku.trabun.org",         # 官方 Wiki 推薦
+    #"https://nitter.kuuro.net",        # 官方 Wiki 推薦
+    #"https://nitter.privacyredirect.com",  # 官方 Wiki 推薦
+    # 備用實例（可能不穩定）
+    "https://nitter.pek.li",           # 舊實例，保留測試
+    "https://nitter.aishiteiru.moe",   # 舊實例，保留測試
 ]
 NITTER_INSTANCES = os.getenv("NITTER_INSTANCES", ",".join(default_nitter_instances)).split(",") if os.getenv("NITTER_INSTANCES") else default_nitter_instances
 
@@ -152,6 +154,11 @@ TWITTER_AUTH_CONFIG = {
 
 # 重要性篩選閾值
 IMPORTANCE_THRESHOLD = int(os.getenv("IMPORTANCE_THRESHOLD", "8"))
+
+# Telegram Bot 配置
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
 
 # 日誌配置
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

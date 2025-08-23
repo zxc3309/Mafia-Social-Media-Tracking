@@ -152,7 +152,13 @@ class TwitterEndpoints:
             "rweb_video_timestamps_enabled": True,
             "longform_notetweets_rich_text_read_enabled": True,
             "longform_notetweets_inline_media_enabled": True,
-            "responsive_web_enhance_cards_enabled": False
+            "responsive_web_enhance_cards_enabled": False,
+            "highlights_tweets_tab_ui_enabled": True,
+            "responsive_web_twitter_article_notes_tab_enabled": True,
+            "hidden_profile_likes_enabled": False,
+            "subscriptions_verification_info_is_identity_verified_enabled": False,
+            "hidden_profile_subscriptions_enabled": True,
+            "subscriptions_verification_info_verified_since_enabled": True
         }
     
     @staticmethod

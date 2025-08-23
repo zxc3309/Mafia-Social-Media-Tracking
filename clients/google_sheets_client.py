@@ -1,7 +1,7 @@
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 import os
 import json
@@ -612,6 +612,98 @@ class GoogleSheetsClient:
                 
         except Exception as e:
             logger.error(f"Failed to write posts to all posts sheet: {e}")
+            return False
+    
+    def get_prompt_by_name(self, prompt_name: str) -> Optional[str]:
+        """
+        Get a specific prompt from the AI Prompts worksheet
+        
+        Args:
+            prompt_name: Name of the prompt to retrieve (e.g., "TELEGRAM_SUMMARY")
+            
+        Returns:
+            Prompt content if found, None otherwise
+        """
+        try:
+            input_spreadsheet = self.gc.open(INPUT_SPREADSHEET_NAME)
+            
+            # Check if AI Prompts worksheet exists
+            try:
+                prompts_sheet = input_spreadsheet.worksheet(PROMPTS_WORKSHEET_NAME)
+            except gspread.exceptions.WorksheetNotFound:
+                logger.debug(f"Worksheet '{PROMPTS_WORKSHEET_NAME}' not found")
+                return None
+                
+            # Get all records
+            records = prompts_sheet.get_all_records()
+            
+            # Look for the specific prompt
+            for record in records:
+                if record.get('Prompt Name') == prompt_name:
+                    # Check if prompt is active
+                    if str(record.get('Active', 'TRUE')).upper() == 'TRUE':
+                        return record.get('Prompt Content')
+                        
+            logger.debug(f"Prompt '{prompt_name}' not found in sheets")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting prompt from sheets: {e}")
+            return None
+            
+    def ensure_prompts_worksheet_exists(self) -> bool:
+        """
+        Ensure the AI Prompts worksheet exists with proper structure
+        
+        Returns:
+            True if worksheet exists or was created successfully
+        """
+        try:
+            input_spreadsheet = self.gc.open(INPUT_SPREADSHEET_NAME)
+            
+            # Check if worksheet exists
+            try:
+                prompts_sheet = input_spreadsheet.worksheet(PROMPTS_WORKSHEET_NAME)
+                logger.info(f"Worksheet '{PROMPTS_WORKSHEET_NAME}' already exists")
+                return True
+            except gspread.exceptions.WorksheetNotFound:
+                # Create the worksheet
+                logger.info(f"Creating worksheet '{PROMPTS_WORKSHEET_NAME}'")
+                prompts_sheet = input_spreadsheet.add_worksheet(
+                    title=PROMPTS_WORKSHEET_NAME,
+                    rows=100,
+                    cols=10
+                )
+                
+                # Set headers
+                headers = [
+                    'Prompt Name',
+                    'Prompt Content', 
+                    'Last Updated',
+                    'Active',
+                    'Description'
+                ]
+                prompts_sheet.update('A1:E1', [headers])
+                
+                # Add default prompts
+                default_prompts = [
+                    [
+                        'TELEGRAM_SUMMARY',
+                        'Organize these important social media posts into a concise English summary:\n\n{posts_list}\n\nGroup by account if needed. Keep it brief and highlight key information.',
+                        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'TRUE',
+                        'Prompt for generating Telegram daily report summaries'
+                    ]
+                ]
+                
+                if default_prompts:
+                    prompts_sheet.update('A2:E2', default_prompts)
+                    
+                logger.info(f"Created '{PROMPTS_WORKSHEET_NAME}' worksheet with default prompts")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error ensuring prompts worksheet exists: {e}")
             return False
     
     def write_prompt_optimization_history(self, optimization_data: Dict[str, Any]) -> bool:
