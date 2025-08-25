@@ -65,18 +65,16 @@ def start_node_service():
             logger.warning(f"Node service file not found: {service_file}")
             return
         
-        # 設置環境變數
-        service_port = AGENT_CLIENT_CONFIG.get('service_port', 3456)
+        # 設置環境變數 (使用動態端口)
         env_vars = {
             **os.environ,
-            'AGENT_SERVICE_PORT': str(service_port),
             'TWITTER_USERNAME': os.getenv('TWITTER_USERNAME', ''),
             'TWITTER_PASSWORD': os.getenv('TWITTER_PASSWORD', ''),
             'TWITTER_EMAIL': os.getenv('TWITTER_EMAIL', ''),
             'TWITTER_2FA_SECRET': os.getenv('TWITTER_2FA_SECRET', ''),
         }
         
-        logger.info(f"Starting Node.js Twitter Agent Service on port {service_port}...")
+        logger.info("Starting Node.js Twitter Agent Service with dynamic port...")
         
         # 啟動 Node.js 服務
         node_service_process = subprocess.Popen(
@@ -92,7 +90,21 @@ def start_node_service():
         
         # 檢查服務是否還在運行
         if node_service_process.poll() is None:
-            logger.info("✅ Node.js Twitter Agent Service started successfully")
+            # 讀取實際端口號
+            try:
+                port_file = service_dir / '.agent_service_port'
+                if port_file.exists():
+                    actual_port = port_file.read_text().strip()
+                    logger.info(f"✅ Node.js Twitter Agent Service started successfully on port {actual_port}")
+                    
+                    # 更新全域配置中的端口
+                    AGENT_CLIENT_CONFIG['service_port'] = int(actual_port)
+                else:
+                    logger.warning("Port file not found, service may still be starting...")
+                    logger.info("✅ Node.js Twitter Agent Service started successfully")
+            except Exception as e:
+                logger.warning(f"Could not read port file: {e}")
+                logger.info("✅ Node.js Twitter Agent Service started successfully")
         else:
             # 獲取錯誤輸出
             stdout, stderr = node_service_process.communicate()

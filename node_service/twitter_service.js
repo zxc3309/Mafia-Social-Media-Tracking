@@ -9,7 +9,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { Scraper } = require('./agent-twitter-client/dist/default/cjs/index.js');
 
 const app = express();
-const PORT = process.env.AGENT_SERVICE_PORT || 3456;
+// Use Railway's PORT if available, otherwise use AGENT_SERVICE_PORT, fallback to dynamic port
+const PORT = process.env.PORT || process.env.AGENT_SERVICE_PORT || 0; // 0 = dynamic port
 
 // Middleware
 app.use(cors());
@@ -342,12 +343,23 @@ process.on('SIGTERM', async () => {
 });
 
 // Start server
-app.listen(PORT, () => {
-    console.log(`Twitter Agent Service running on http://localhost:${PORT}`);
+const server = app.listen(PORT, () => {
+    const actualPort = server.address().port;
+    console.log(`Twitter Agent Service running on http://localhost:${actualPort}`);
+    console.log(`Actual port used: ${actualPort}`);
     console.log('Environment:', {
         username: process.env.TWITTER_USERNAME ? 'Set' : 'Not set',
         password: process.env.TWITTER_PASSWORD ? 'Set' : 'Not set',
         email: process.env.TWITTER_EMAIL ? 'Set' : 'Not set',
         totpSecret: process.env.TWITTER_2FA_SECRET ? 'Set' : 'Not set'
     });
+    
+    // Write port to file for Python service to read
+    const fs = require('fs');
+    try {
+        fs.writeFileSync('.agent_service_port', actualPort.toString());
+        console.log(`Port ${actualPort} written to .agent_service_port file`);
+    } catch (err) {
+        console.error('Failed to write port file:', err);
+    }
 });
