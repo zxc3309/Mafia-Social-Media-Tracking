@@ -260,9 +260,9 @@ class PostCollector:
         
         try:
             if platform in ['twitter', 'x'] and self.x_client:
-                # 記錄是否使用爬蟲
-                collection_method = 'scraper' if SCRAPER_CONFIG.get('use_scraper', False) else 'api'
-                logger.info(f"Collecting posts for @{username} using {collection_method}")
+                # 記錄使用的客戶端類型
+                client_type = type(self.x_client).__name__
+                logger.info(f"Collecting posts for @{username} using {client_type}")
                 
                 posts = self.x_client.get_user_tweets(username, days_back=1)
                 

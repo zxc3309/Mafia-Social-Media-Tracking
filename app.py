@@ -94,7 +94,13 @@ def start_node_service():
         if node_service_process.poll() is None:
             logger.info("✅ Node.js Twitter Agent Service started successfully")
         else:
+            # 獲取錯誤輸出
+            stdout, stderr = node_service_process.communicate()
             logger.error("❌ Node.js Twitter Agent Service failed to start")
+            if stdout:
+                logger.error(f"STDOUT: {stdout.decode()}")
+            if stderr:
+                logger.error(f"STDERR: {stderr.decode()}")
             
     except Exception as e:
         logger.error(f"Error starting Node.js service: {e}")
