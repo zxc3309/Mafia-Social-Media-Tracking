@@ -8,8 +8,11 @@ import os
 import sys
 import logging
 import asyncio
+import subprocess
+import time
 from datetime import datetime
 from typing import Dict, Any
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -18,7 +21,7 @@ import uvicorn
 # 導入系統組件
 from services.scheduler import get_scheduler
 from services.post_collector import PostCollector
-from config import COLLECTION_SCHEDULE_HOUR, COLLECTION_SCHEDULE_MINUTE
+from config import COLLECTION_SCHEDULE_HOUR, COLLECTION_SCHEDULE_MINUTE, AGENT_CLIENT_CONFIG
 
 # Setup logging
 logging.basicConfig(
@@ -37,6 +40,82 @@ app = FastAPI(
 # Global variables
 scheduler = None
 collector = PostCollector()
+node_service_process = None
+
+def start_node_service():
+    """啟動 Node.js Twitter Agent Service (Railway 環境)"""
+    global node_service_process
+    
+    try:
+        # 檢查是否在 Railway 環境
+        is_railway = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
+        if not is_railway:
+            logger.info("Not in Railway environment, skipping Node.js service startup")
+            return
+        
+        # 檢查 Node.js 服務目錄
+        service_dir = Path(__file__).parent / 'node_service'
+        if not service_dir.exists():
+            logger.warning(f"Node service directory not found: {service_dir}")
+            return
+        
+        # 檢查必要文件
+        service_file = service_dir / 'twitter_service.js'
+        if not service_file.exists():
+            logger.warning(f"Node service file not found: {service_file}")
+            return
+        
+        # 設置環境變數
+        service_port = AGENT_CLIENT_CONFIG.get('service_port', 3456)
+        env_vars = {
+            **os.environ,
+            'AGENT_SERVICE_PORT': str(service_port),
+            'TWITTER_USERNAME': os.getenv('TWITTER_USERNAME', ''),
+            'TWITTER_PASSWORD': os.getenv('TWITTER_PASSWORD', ''),
+            'TWITTER_EMAIL': os.getenv('TWITTER_EMAIL', ''),
+            'TWITTER_2FA_SECRET': os.getenv('TWITTER_2FA_SECRET', ''),
+        }
+        
+        logger.info(f"Starting Node.js Twitter Agent Service on port {service_port}...")
+        
+        # 啟動 Node.js 服務
+        node_service_process = subprocess.Popen(
+            ['node', 'twitter_service.js'],
+            cwd=str(service_dir),
+            env=env_vars,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        # 等待服務啟動
+        time.sleep(3)
+        
+        # 檢查服務是否還在運行
+        if node_service_process.poll() is None:
+            logger.info("✅ Node.js Twitter Agent Service started successfully")
+        else:
+            logger.error("❌ Node.js Twitter Agent Service failed to start")
+            
+    except Exception as e:
+        logger.error(f"Error starting Node.js service: {e}")
+
+def stop_node_service():
+    """停止 Node.js Twitter Agent Service"""
+    global node_service_process
+    
+    if node_service_process:
+        try:
+            logger.info("Stopping Node.js Twitter Agent Service...")
+            node_service_process.terminate()
+            node_service_process.wait(timeout=5)
+            logger.info("✅ Node.js Twitter Agent Service stopped")
+        except subprocess.TimeoutExpired:
+            logger.warning("Node.js service didn't stop gracefully, killing...")
+            node_service_process.kill()
+        except Exception as e:
+            logger.error(f"Error stopping Node.js service: {e}")
+        finally:
+            node_service_process = None
 
 async def run_thread_id_migration_check():
     """Run thread_id migration check for Railway PostgreSQL"""
@@ -90,6 +169,10 @@ async def startup_event():
         # Run thread_id migration check for Railway PostgreSQL
         await run_thread_id_migration_check()
         
+        # 啟動 Node.js Twitter Agent Service (Railway 環境)
+        logger.info("🔧 Starting Node.js Twitter Agent Service...")
+        start_node_service()
+        
         # 初始化排程器
         logger.info("🔄 Initializing scheduler...")
         scheduler = get_scheduler(background_mode=True)
@@ -110,8 +193,14 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """應用關閉時清理排程器"""
+    """應用關閉時清理排程器和 Node.js 服務"""
     global scheduler
+    
+    # 停止 Node.js Twitter Agent Service
+    logger.info("🔧 Stopping Node.js Twitter Agent Service...")
+    stop_node_service()
+    
+    # 停止排程器
     if scheduler:
         try:
             scheduler.stop()

@@ -6,8 +6,6 @@ load_dotenv()
 
 # API Keys 和憑證配置
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH", "credentials/service-account.json")
-# X API 配置 - 僅作為最後備案使用
-X_API_BEARER_TOKEN = os.getenv("X_API_BEARER_TOKEN")
 LINKEDIN_API_KEY = os.getenv("LINKEDIN_API_KEY")
 AI_API_KEY = os.getenv("AI_API_KEY")
 AI_API_TYPE = os.getenv("AI_API_TYPE", "openai")  # "openai" or "anthropic"
@@ -77,8 +75,8 @@ REPOST_GENERATION_PROMPT = os.getenv("REPOST_GENERATION_PROMPT", """
 """)
 
 # Twitter 客戶端優先順序配置
-# 可選值: "auth", "nitter", "scraper", "api"
-TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "nitter,auth").split(",")
+# 可選值: "agent", "nitter"
+TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "agent,nitter").split(",")
 
 # 平台配置
 PLATFORMS = {
@@ -97,31 +95,6 @@ PLATFORMS = {
     }
 }
 
-# Web Scraper 配置
-SCRAPER_CONFIG = {
-    "use_scraper": os.getenv("USE_X_SCRAPER", "false").lower() == "true",  # 是否使用爬蟲而非API
-    "headless": os.getenv("SCRAPER_HEADLESS", "true").lower() == "true",  # 是否使用無頭瀏覽器
-    "min_delay": float(os.getenv("SCRAPER_MIN_DELAY", "3")),  # 最小延遲（秒）
-    "max_delay": float(os.getenv("SCRAPER_MAX_DELAY", "10")),  # 最大延遲（秒）
-    "daily_limit": int(os.getenv("SCRAPER_DAILY_LIMIT", "500")),  # 每日抓取限制
-    "proxy_enabled": os.getenv("SCRAPER_PROXY_ENABLED", "false").lower() == "true",
-    "proxy_list": os.getenv("SCRAPER_PROXY_LIST", "").split(","),  # 代理列表，逗號分隔
-    "user_agents_file": os.getenv("SCRAPER_USER_AGENTS_FILE", "user_agents.txt"),
-    "cookies_dir": os.getenv("SCRAPER_COOKIES_DIR", "scraper_cookies"),  # Cookie存儲目錄
-    "accounts": []  # 將在運行時從環境變量加載
-}
-
-# 加載爬蟲帳號配置
-if os.getenv("X_SCRAPER_ACCOUNTS"):
-    # 格式: username1:password1,username2:password2
-    accounts_str = os.getenv("X_SCRAPER_ACCOUNTS", "")
-    for account in accounts_str.split(","):
-        if ":" in account:
-            username, password = account.split(":", 1)
-            SCRAPER_CONFIG["accounts"].append({
-                "username": username.strip(),
-                "password": password.strip()
-            })
 
 # Nitter 實例配置（備用方案）- 2025年8月更新
 # 基於 GitHub Wiki 和狀態監控的可用實例
@@ -140,16 +113,12 @@ default_nitter_instances = [
 ]
 NITTER_INSTANCES = os.getenv("NITTER_INSTANCES", ",".join(default_nitter_instances)).split(",") if os.getenv("NITTER_INSTANCES") else default_nitter_instances
 
-# Twitter 認證客戶端配置
-TWITTER_AUTH_CONFIG = {
-    "enabled": os.getenv("TWITTER_USE_AUTH_CLIENT", "true").lower() == "true",
-    "username": os.getenv("TWITTER_USERNAME"),
-    "password": os.getenv("TWITTER_PASSWORD"),
-    "email": os.getenv("TWITTER_EMAIL"),  # 可選，用於 email 驗證
-    "totp_secret": os.getenv("TWITTER_2FA_SECRET"),  # 可選，用於 2FA
-    "cookie_cache_days": int(os.getenv("TWITTER_COOKIE_CACHE_DAYS", "7")),
-    "auto_refresh": os.getenv("TWITTER_AUTO_REFRESH_SESSION", "true").lower() == "true",
-    "bearer_token": "AAAAAAAAAAAAAAAAAAAAAFQODgEAAAAAVHTp76lzh3rFzcHbmHVvQxYYpTw%3DckAlMINMjmCwxUcaXbAN4XqJVdgMJaHqNOFgPMK0zN1qLqLQCF"  # Twitter 官方前端固定 token
+
+# Agent Twitter Client 配置
+AGENT_CLIENT_CONFIG = {
+    "enabled": os.getenv("TWITTER_USE_AGENT_CLIENT", "true").lower() == "true",
+    "service_port": int(os.getenv("AGENT_SERVICE_PORT", "3456")),
+    "auto_start": True  # 自動啟動 Node.js 服務
 }
 
 # 重要性篩選閾值

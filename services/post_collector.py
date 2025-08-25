@@ -1,12 +1,12 @@
 import logging
+import os
 from typing import List, Dict, Any
 from datetime import datetime
 from clients.google_sheets_client import GoogleSheetsClient
-from clients.x_client import XClient
 from clients.linkedin_client import LinkedInClient
 from clients.ai_client import AIClient
 from models.database import db_manager
-from config import PLATFORMS, IMPORTANCE_THRESHOLD, SCRAPER_CONFIG, NITTER_INSTANCES, TWITTER_CLIENT_PRIORITY, OUTPUT_WORKSHEET_NAME, ALL_POSTS_WORKSHEET_NAME, TWITTER_AUTH_CONFIG
+from config import PLATFORMS, IMPORTANCE_THRESHOLD, NITTER_INSTANCES, TWITTER_CLIENT_PRIORITY, OUTPUT_WORKSHEET_NAME, ALL_POSTS_WORKSHEET_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +41,11 @@ class PostCollector:
             client_type = client_type.strip().lower()
             
             try:
-                if client_type == "auth":
-                    if self._try_auth_client():
-                        return
-                elif client_type == "nitter":
+                if client_type == "nitter":
                     if self._try_nitter_client():
                         return
-                elif client_type == "scraper":
-                    if self._try_scraper_client():
-                        return
-                elif client_type == "api":
-                    if self._try_api_client():
+                elif client_type == "agent":
+                    if self._try_agent_client():
                         return
                 else:
                     logger.warning(f"Unknown client type: {client_type}")
@@ -59,50 +53,11 @@ class PostCollector:
                 logger.error(f"Failed to initialize {client_type} client: {e}")
                 continue
         
-        # 如果所有客戶端都失敗，使用 API 作為最後備案
-        logger.error("All Twitter clients failed, using API as last resort")
-        self.x_client = XClient()
-        logger.info("X (Twitter) API client initialized (emergency fallback)")
+        # 如果所有客戶端都失敗，記錄錯誤
+        logger.error("All configured Twitter clients failed")
+        logger.warning("No Twitter client available - Twitter functionality will be disabled")
+        self.x_client = None
     
-    def _try_auth_client(self) -> bool:
-        """嘗試初始化 XAuthClient（帳號密碼認證）"""
-        if not TWITTER_AUTH_CONFIG.get('enabled', True):
-            logger.info("XAuthClient not enabled in config, skipping")
-            return False
-            
-        if not TWITTER_AUTH_CONFIG.get('username') or not TWITTER_AUTH_CONFIG.get('password'):
-            logger.warning("Twitter username/password not configured for XAuthClient, skipping")
-            return False
-            
-        try:
-            from clients.x_auth_client import XAuthClientSync
-            
-            # 先檢查配置可用性
-            if not TWITTER_AUTH_CONFIG.get('username') or not TWITTER_AUTH_CONFIG.get('password'):
-                logger.warning("Twitter username/password not configured for XAuthClient")
-                return False
-                
-            auth_client = XAuthClientSync()
-            
-            # 只做基本檢查，不實際初始化（避免登入失敗）
-            if auth_client.is_available():
-                # 嘗試測試一個簡單的請求來驗證
-                try:
-                    # 這裡不做實際的推文獲取，只是設置客戶端
-                    self.x_client = auth_client
-                    logger.info("✓ X (Twitter) Auth client initialized successfully")
-                    logger.info(f"Using account: {TWITTER_AUTH_CONFIG.get('username')}")
-                    return True
-                except Exception as test_e:
-                    logger.warning(f"XAuthClient test failed: {test_e}")
-                    return False
-            else:
-                logger.warning("✗ XAuthClient not available")
-                return False
-                
-        except Exception as e:
-            logger.warning(f"XAuthClient initialization failed: {e}")
-            return False
     
     def _try_nitter_client(self) -> bool:
         """嘗試初始化 Nitter 客戶端"""
@@ -121,39 +76,33 @@ class PostCollector:
             logger.warning("✗ No working Nitter instances available")
             return False
     
-    def _try_scraper_client(self) -> bool:
-        """嘗試初始化 Scraper 客戶端"""
+    def _try_agent_client(self) -> bool:
+        """嘗試初始化 agent-twitter-client"""
         try:
-            from clients.x_scraper_client import XScraperClientSync
-            self.x_client = XScraperClientSync()
+            from clients.x_agent_client import XAgentClient
             
-            accounts_count = len(SCRAPER_CONFIG.get('accounts', []))
-            if accounts_count > 0:
-                logger.info("✓ X (Twitter) scraper client initialized successfully")
-                logger.info(f"Using {accounts_count} scraper accounts")
+            # 檢查配置
+            if not os.getenv('TWITTER_USERNAME') or not os.getenv('TWITTER_PASSWORD'):
+                logger.info("Twitter credentials not configured for Agent Client, skipping")
+                return False
+            
+            agent_client = XAgentClient()
+            
+            # 測試連接
+            if agent_client.is_available():
+                self.x_client = agent_client
+                logger.info("✓ X (Twitter) Agent client initialized successfully")
+                logger.info(f"Using agent-twitter-client with account: {os.getenv('TWITTER_USERNAME')}")
+                return True
             else:
-                logger.info("✓ X (Twitter) scraper client initialized (no-login mode)")
-                logger.info("Will attempt scraping without authentication")
-            
-            return True
-            
-        except ImportError as e:
-            logger.warning(f"Scraper dependencies not available: {e}")
-            return False
+                logger.warning("✗ Agent client not available")
+                return False
+                
         except Exception as e:
-            logger.warning(f"Scraper client initialization failed: {e}")
+            logger.warning(f"Agent client initialization failed: {e}")
             return False
     
-    def _try_api_client(self) -> bool:
-        """嘗試初始化 API 客戶端"""
-        from config import X_API_BEARER_TOKEN
-        if not X_API_BEARER_TOKEN:
-            logger.warning("No X API bearer token configured, skipping")
-            return False
-            
-        self.x_client = XClient()
-        logger.info("✓ X (Twitter) API client initialized successfully")
-        return True
+    
     
     def collect_all_posts(self) -> Dict[str, Any]:
         """

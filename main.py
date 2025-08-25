@@ -277,17 +277,8 @@ def test_connections():
     except Exception as e:
         print(f"✗ Google Sheets連接失敗: {e}")
     
-    # 測試X API連接
-    try:
-        from clients.x_client import XClient
-        from config import X_API_BEARER_TOKEN
-        if X_API_BEARER_TOKEN:
-            x_client = XClient()
-            print("✓ X API配置正常")
-        else:
-            print("⚠ X API Token未配置")
-    except Exception as e:
-        print(f"✗ X API連接失敗: {e}")
+    # 測試Twitter客戶端連接
+    print("ℹ Twitter客戶端將在PostCollector中自動初始化（Agent或Nitter）")
     
     # 測試AI API連接
     try:
