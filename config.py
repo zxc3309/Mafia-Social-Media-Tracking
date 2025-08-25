@@ -78,7 +78,7 @@ REPOST_GENERATION_PROMPT = os.getenv("REPOST_GENERATION_PROMPT", """
 
 # Twitter 客戶端優先順序配置
 # 可選值: "auth", "nitter", "scraper", "api"
-TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "nitter,auth,api").split(",")
+TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "nitter,auth").split(",")
 
 # 平台配置
 PLATFORMS = {
