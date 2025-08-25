@@ -6,6 +6,8 @@
 credentials/
 *.json
 !requirements.txt
+!package.json
+!**/package.json
 
 # Database files
 *.db
