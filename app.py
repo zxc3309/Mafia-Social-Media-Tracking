@@ -42,98 +42,7 @@ scheduler = None
 collector = PostCollector()
 node_service_process = None
 
-def start_node_service():
-    """啟動 Node.js Twitter Agent Service (Railway 環境)"""
-    global node_service_process
-    
-    try:
-        # 檢查是否在 Railway 環境
-        is_railway = os.getenv('RAILWAY_ENVIRONMENT_NAME') is not None
-        if not is_railway:
-            logger.info("Not in Railway environment, skipping Node.js service startup")
-            return
-        
-        # 檢查 Node.js 服務目錄
-        service_dir = Path(__file__).parent / 'node_service'
-        if not service_dir.exists():
-            logger.warning(f"Node service directory not found: {service_dir}")
-            return
-        
-        # 檢查必要文件
-        service_file = service_dir / 'twitter_service.js'
-        if not service_file.exists():
-            logger.warning(f"Node service file not found: {service_file}")
-            return
-        
-        # 設置環境變數 (使用動態端口)
-        env_vars = {
-            **os.environ,
-            'TWITTER_USERNAME': os.getenv('TWITTER_USERNAME', ''),
-            'TWITTER_PASSWORD': os.getenv('TWITTER_PASSWORD', ''),
-            'TWITTER_EMAIL': os.getenv('TWITTER_EMAIL', ''),
-            'TWITTER_2FA_SECRET': os.getenv('TWITTER_2FA_SECRET', ''),
-        }
-        
-        logger.info("Starting Node.js Twitter Agent Service with dynamic port...")
-        
-        # 啟動 Node.js 服務
-        node_service_process = subprocess.Popen(
-            ['node', 'twitter_service.js'],
-            cwd=str(service_dir),
-            env=env_vars,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        
-        # 等待服務啟動
-        time.sleep(3)
-        
-        # 檢查服務是否還在運行
-        if node_service_process.poll() is None:
-            # 讀取實際端口號
-            try:
-                port_file = service_dir / '.agent_service_port'
-                if port_file.exists():
-                    actual_port = port_file.read_text().strip()
-                    logger.info(f"✅ Node.js Twitter Agent Service started successfully on port {actual_port}")
-                    
-                    # 更新全域配置中的端口
-                    AGENT_CLIENT_CONFIG['service_port'] = int(actual_port)
-                else:
-                    logger.warning("Port file not found, service may still be starting...")
-                    logger.info("✅ Node.js Twitter Agent Service started successfully")
-            except Exception as e:
-                logger.warning(f"Could not read port file: {e}")
-                logger.info("✅ Node.js Twitter Agent Service started successfully")
-        else:
-            # 獲取錯誤輸出
-            stdout, stderr = node_service_process.communicate()
-            logger.error("❌ Node.js Twitter Agent Service failed to start")
-            if stdout:
-                logger.error(f"STDOUT: {stdout.decode()}")
-            if stderr:
-                logger.error(f"STDERR: {stderr.decode()}")
-            
-    except Exception as e:
-        logger.error(f"Error starting Node.js service: {e}")
-
-def stop_node_service():
-    """停止 Node.js Twitter Agent Service"""
-    global node_service_process
-    
-    if node_service_process:
-        try:
-            logger.info("Stopping Node.js Twitter Agent Service...")
-            node_service_process.terminate()
-            node_service_process.wait(timeout=5)
-            logger.info("✅ Node.js Twitter Agent Service stopped")
-        except subprocess.TimeoutExpired:
-            logger.warning("Node.js service didn't stop gracefully, killing...")
-            node_service_process.kill()
-        except Exception as e:
-            logger.error(f"Error stopping Node.js service: {e}")
-        finally:
-            node_service_process = None
+# Node.js service management functions removed - now using CLI-based architecture
 
 async def run_thread_id_migration_check():
     """Run thread_id migration check for Railway PostgreSQL"""
@@ -187,9 +96,8 @@ async def startup_event():
         # Run thread_id migration check for Railway PostgreSQL
         await run_thread_id_migration_check()
         
-        # 啟動 Node.js Twitter Agent Service (Railway 環境)
-        logger.info("🔧 Starting Node.js Twitter Agent Service...")
-        start_node_service()
+        # Note: X Agent Client now uses CLI architecture - no need to start persistent service
+        logger.info("🔧 X Agent Client ready (CLI-based architecture)")
         
         # 初始化排程器
         logger.info("🔄 Initializing scheduler...")
@@ -211,12 +119,10 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """應用關閉時清理排程器和 Node.js 服務"""
+    """應用關閉時清理排程器"""
     global scheduler
     
-    # 停止 Node.js Twitter Agent Service
-    logger.info("🔧 Stopping Node.js Twitter Agent Service...")
-    stop_node_service()
+    # Note: No need to stop Node.js service in CLI architecture
     
     # 停止排程器
     if scheduler:

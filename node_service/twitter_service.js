@@ -9,8 +9,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { Scraper } = require('./agent-twitter-client/dist/default/cjs/index.js');
 
 const app = express();
-// Use Railway's PORT if available, otherwise use AGENT_SERVICE_PORT, fallback to dynamic port
-const PORT = process.env.PORT || process.env.AGENT_SERVICE_PORT || 0; // 0 = dynamic port
+// Use AGENT_SERVICE_PORT or dynamic port (avoid Railway's main PORT)
+const PORT = process.env.AGENT_SERVICE_PORT || 0; // 0 = dynamic port, don't use main app's PORT
 
 // Middleware
 app.use(cors());

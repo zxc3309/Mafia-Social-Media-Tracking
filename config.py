@@ -114,11 +114,11 @@ default_nitter_instances = [
 NITTER_INSTANCES = os.getenv("NITTER_INSTANCES", ",".join(default_nitter_instances)).split(",") if os.getenv("NITTER_INSTANCES") else default_nitter_instances
 
 
-# Agent Twitter Client 配置
+# Agent Twitter Client 配置 (CLI-based)
 AGENT_CLIENT_CONFIG = {
     "enabled": os.getenv("TWITTER_USE_AGENT_CLIENT", "true").lower() == "true",
-    "service_port": int(os.getenv("AGENT_SERVICE_PORT", "3456")),
-    "auto_start": True  # 自動啟動 Node.js 服務
+    "timeout": int(os.getenv("AGENT_CLIENT_TIMEOUT", "60")),  # CLI 執行超時(秒)
+    "max_retries": int(os.getenv("AGENT_CLIENT_RETRIES", "3"))  # 重試次數
 }
 
 # 重要性篩選閾值
