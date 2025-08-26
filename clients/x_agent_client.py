@@ -29,8 +29,8 @@ class XAgentClient:
     
     def __init__(self):
         """初始化 Agent 客戶端"""
-        self.max_retries = 3
-        self.retry_delay = 2
+        self.max_retries = 2  # Reduced to avoid triggering security measures
+        self.base_retry_delay = 10  # Increased base delay
         self.timeout = 60  # 60 seconds timeout for CLI calls
         
         # 找到 Node.js CLI 工具的路徑
@@ -179,17 +179,20 @@ class XAgentClient:
                             # 拋出特殊異常以觸發 fallback
                             raise TwitterFallbackRequired(f"Twitter Error 399 or similar detected: {error_msg}")
                         
-                        # 如果是認證問題，重試
-                        if 'auth' in error_msg.lower() or 'login' in error_msg.lower():
+                        # 如果是認證問題，使用智慧重試策略
+                        if self._is_authentication_error(error_msg):
                             if attempt < self.max_retries - 1:
-                                logger.info("Authentication issue detected, retrying...")
-                                time.sleep(self.retry_delay)
+                                # 指數退避延遲：10秒 -> 20秒 -> 40秒
+                                delay = self.base_retry_delay * (2 ** attempt)
+                                logger.info(f"Authentication issue detected, retrying in {delay} seconds...")
+                                time.sleep(delay)
                                 continue
                         
-                        # 其他錯誤也重試
+                        # 其他錯誤也重試，但使用較短延遲
                         if attempt < self.max_retries - 1:
-                            logger.info(f"Retrying in {self.retry_delay} seconds...")
-                            time.sleep(self.retry_delay)
+                            delay = self.base_retry_delay * (1.5 ** attempt)  # 較溫和的退避
+                            logger.info(f"Retrying in {delay:.1f} seconds...")
+                            time.sleep(delay)
                             continue
                         
                 except Exception as e:
@@ -226,6 +229,24 @@ class XAgentClient:
         ]
         
         return any(pattern in error_msg_lower for pattern in fallback_patterns)
+    
+    def _is_authentication_error(self, error_msg: str) -> bool:
+        """檢查是否是認證相關錯誤"""
+        error_msg_lower = error_msg.lower()
+        
+        # 認證相關錯誤模式
+        auth_patterns = [
+            'login failed',
+            'login verification failed', 
+            'authentication failed',
+            'auth',
+            'login',
+            'credentials',
+            'password',
+            'username'
+        ]
+        
+        return any(pattern in error_msg_lower for pattern in auth_patterns)
     
     def is_available(self) -> bool:
         """檢查客戶端是否可用"""

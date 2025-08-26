@@ -11,8 +11,9 @@ const { Scraper } = require('./agent-twitter-client/dist/default/cjs/index.js');
 let scraper = null;
 let lastLoginTime = null;
 let isLoggedIn = false;
-const SESSION_DURATION = 6 * 60 * 60 * 1000; // 6 hours
+const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours (optimized for cloud deployment)
 const COOKIES_FILE = path.join(__dirname, '.twitter_cookies.json');
+const SESSION_STATE_FILE = path.join(__dirname, '.twitter_session_state.json');
 
 // Load saved cookies if they exist
 async function loadCookies() {
@@ -72,6 +73,54 @@ async function saveCookies() {
     }
 }
 
+// Session state management functions
+function loadSessionState() {
+    try {
+        if (fs.existsSync(SESSION_STATE_FILE)) {
+            const stateData = fs.readFileSync(SESSION_STATE_FILE, 'utf8');
+            const state = JSON.parse(stateData);
+            
+            console.error(`Loaded session state: last login ${new Date(state.lastLoginTime).toISOString()}`);
+            return state;
+        }
+    } catch (error) {
+        console.error('Error loading session state:', error.message);
+        // Clean up corrupted state file
+        try {
+            fs.unlinkSync(SESSION_STATE_FILE);
+        } catch (e) {
+            // Ignore cleanup errors
+        }
+    }
+    return { lastLoginTime: null, isLoggedIn: false, processId: process.pid };
+}
+
+function saveSessionState(state) {
+    try {
+        const stateToSave = {
+            ...state,
+            processId: process.pid,
+            savedAt: Date.now()
+        };
+        
+        fs.writeFileSync(SESSION_STATE_FILE, JSON.stringify(stateToSave, null, 2));
+        console.error(`Session state saved: login time ${new Date(state.lastLoginTime).toISOString()}`);
+    } catch (error) {
+        console.error('Error saving session state:', error.message);
+    }
+}
+
+function clearSessionState() {
+    try {
+        if (fs.existsSync(SESSION_STATE_FILE)) {
+            fs.unlinkSync(SESSION_STATE_FILE);
+            console.error('Session state cleared');
+        }
+    } catch (error) {
+        console.error('Error clearing session state:', error.message);
+    }
+}
+
 // Initialize scraper with authentication
 async function initializeScraper() {
     try {
@@ -85,12 +134,31 @@ async function initializeScraper() {
             }
         }
         
-        // Check if we need to login or refresh session
+        // Load persistent session state
+        const sessionState = loadSessionState();
         const now = Date.now();
-        const needsLogin = !isLoggedIn || !lastLoginTime || (now - lastLoginTime) > SESSION_DURATION;
+        
+        // Update in-memory variables with persistent state
+        if (sessionState.lastLoginTime) {
+            lastLoginTime = sessionState.lastLoginTime;
+            isLoggedIn = sessionState.isLoggedIn && (now - sessionState.lastLoginTime) < SESSION_DURATION;
+        }
+        
+        let needsLogin = !isLoggedIn || !lastLoginTime || (now - lastLoginTime) > SESSION_DURATION;
+        
+        // If we think we don't need to login based on persistent state,
+        // give the loaded cookies a chance to work before declaring session invalid
+        if (!needsLogin) {
+            // Skip immediate verification, trust the persistent state and cookies
+            // Let any authentication errors be caught during actual tweet fetching
+            console.error('Using persistent session state - skipping login');
+        }
         
         if (needsLogin) {
             console.error('Attempting to login to Twitter...');
+            
+            // Add a small delay before login to avoid rapid successive login attempts
+            await new Promise(resolve => setTimeout(resolve, 2000));
             
             const username = process.env.TWITTER_USERNAME;
             const password = process.env.TWITTER_PASSWORD;
@@ -113,6 +181,12 @@ async function initializeScraper() {
                 
                 // Save cookies after successful login
                 await saveCookies();
+                
+                // Save session state for cross-process sharing
+                saveSessionState({
+                    lastLoginTime: now,
+                    isLoggedIn: true
+                });
             } else {
                 const errorMsg = loginResult && loginResult.error ? loginResult.error : 'Login verification failed';
                 console.error('❌ Login failed:', errorMsg);
@@ -120,11 +194,31 @@ async function initializeScraper() {
             }
         } else {
             console.error('Using existing valid session');
+            
+            // Verify the session is still good by checking login status
+            try {
+                const currentlyLoggedIn = await scraper.isLoggedIn();
+                if (!currentlyLoggedIn) {
+                    console.error('Warning: Session validation failed, but continuing...');
+                    // Don't throw error here, let the tweet fetching fail and retry if needed
+                } else {
+                    console.error('Session verified successfully');
+                }
+            } catch (e) {
+                console.error('Could not verify session status:', e.message);
+            }
         }
         
         return true;
     } catch (error) {
         console.error('Error initializing scraper:', error.message);
+        
+        // Clear session state on login failure to force fresh login next time
+        if (error.message.includes('Login failed')) {
+            console.error('Clearing session state due to login failure');
+            clearSessionState();
+        }
+        
         throw error;
     }
 }
@@ -172,6 +266,14 @@ async function getUserTweets(username, daysBack = 1) {
         
     } catch (error) {
         console.error('Error fetching tweets:', error.message);
+        
+        // If tweet fetching fails due to authentication issues, clear session state
+        if (error.message.includes('auth') || error.message.includes('login') || 
+            error.message.includes('unauthorized') || error.message.includes('403')) {
+            console.error('Clearing session state due to authentication error in tweet fetching');
+            clearSessionState();
+        }
+        
         throw error;
     }
 }
