@@ -150,8 +150,12 @@ class XAgentClient:
                         posts = result.get('tweets', [])
                         logger.info(f"Successfully fetched {len(posts)} tweets for @{username}")
                         
-                        # 確保時間格式正確
+                        # 確保時間格式和資料欄位正確
                         for post in posts:
+                            # 設置平台和收集方法
+                            post['platform'] = 'twitter'
+                            post['collection_method'] = 'agent-twitter-client'
+                            
                             if post.get('post_time'):
                                 try:
                                     # 確保是 ISO 格式字串

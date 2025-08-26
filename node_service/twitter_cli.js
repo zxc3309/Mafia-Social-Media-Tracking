@@ -103,7 +103,10 @@ async function initializeScraper() {
             
             const loginResult = await scraper.login(username, password, email, totpSecret);
             
-            if (loginResult.success) {
+            // Check if login was actually successful (loginResult might be undefined)
+            const actuallyLoggedIn = await scraper.isLoggedIn();
+            
+            if (actuallyLoggedIn) {
                 console.error('✅ Successfully logged in to Twitter');
                 isLoggedIn = true;
                 lastLoginTime = now;
@@ -111,8 +114,9 @@ async function initializeScraper() {
                 // Save cookies after successful login
                 await saveCookies();
             } else {
-                console.error('❌ Login failed:', loginResult.error || 'Unknown error');
-                throw new Error(`Login failed: ${loginResult.error || 'Unknown error'}`);
+                const errorMsg = loginResult && loginResult.error ? loginResult.error : 'Login verification failed';
+                console.error('❌ Login failed:', errorMsg);
+                throw new Error(`Login failed: ${errorMsg}`);
             }
         } else {
             console.error('Using existing valid session');
@@ -146,13 +150,14 @@ async function getUserTweets(username, daysBack = 1) {
             if (tweetCount >= maxTweets) break;
             
             // Check if tweet is within time range
-            const tweetTime = new Date(tweet.created_at);
+            // Use the correct time field (timeParsed or timestamp)
+            const tweetTime = tweet.timeParsed ? new Date(tweet.timeParsed) : new Date(tweet.timestamp * 1000);
             if (tweetTime >= startTime) {
                 tweets.push({
                     id: tweet.id_str || tweet.id,
                     content: tweet.full_text || tweet.text || '',
                     author: tweet.user?.screen_name || username,
-                    post_time: tweet.created_at,
+                    post_time: tweetTime.toISOString(),
                     url: `https://twitter.com/${username}/status/${tweet.id_str || tweet.id}`,
                     retweet_count: tweet.retweet_count || 0,
                     favorite_count: tweet.favorite_count || 0,

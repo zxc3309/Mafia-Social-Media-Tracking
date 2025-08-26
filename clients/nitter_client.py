@@ -32,6 +32,8 @@ class NitterClient:
         self.last_instance_check = None
         self.instance_check_interval = 900  # 15分鐘檢查一次
         self.instance_stats = {}  # 實例統計信息
+        self.rate_limit_tracker = {}  # 追蹤速率限制狀態
+        self.rate_limit_cooldown = 300  # 5分鐘冷卻期
         
     def _get_random_headers(self) -> Dict[str, str]:
         """獲取隨機 User-Agent 和 headers"""
@@ -47,6 +49,41 @@ class NitterClient:
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-Site': 'none'
         }
+    
+    def _is_instance_in_cooldown(self, instance: str) -> bool:
+        """檢查實例是否在冷卻期內"""
+        if instance not in self.rate_limit_tracker:
+            return False
+        
+        last_rate_limit = self.rate_limit_tracker[instance]['last_rate_limit']
+        cooldown_end = last_rate_limit + self.rate_limit_cooldown
+        
+        return time.time() < cooldown_end
+    
+    def _record_rate_limit(self, instance: str):
+        """記錄實例被速率限制"""
+        current_time = time.time()
+        
+        if instance not in self.rate_limit_tracker:
+            self.rate_limit_tracker[instance] = {
+                'count': 0,
+                'last_rate_limit': current_time,
+                'backoff_delay': 30  # 初始退避延遲30秒
+            }
+        else:
+            tracker = self.rate_limit_tracker[instance]
+            tracker['count'] += 1
+            tracker['last_rate_limit'] = current_time
+            # 指數退避：30s -> 60s -> 120s -> 240s (最大4分鐘)
+            tracker['backoff_delay'] = min(30 * (2 ** tracker['count']), 240)
+        
+        logger.warning(f"Rate limit recorded for {instance}, cooldown: {self.rate_limit_tracker[instance]['backoff_delay']}s")
+    
+    def _get_backoff_delay(self, instance: str) -> int:
+        """獲取實例的退避延遲時間"""
+        if instance not in self.rate_limit_tracker:
+            return 0
+        return self.rate_limit_tracker[instance]['backoff_delay']
     
     def _sort_instances_by_performance(self, instances: List[str]) -> List[str]:
         """根據性能排序實例"""
@@ -160,8 +197,20 @@ class NitterClient:
             logger.error("No working Nitter instances available")
             return posts
         
+        # 過濾掉在冷卻期內的實例
+        available_instances = [inst for inst in self.working_instances if not self._is_instance_in_cooldown(inst)]
+        
+        if not available_instances:
+            logger.warning("No Nitter instances available (all in cooldown), waiting for cooldown to end...")
+            # 等待最短的冷卻時間
+            min_cooldown = min([self._get_backoff_delay(inst) for inst in self.working_instances])
+            if min_cooldown > 0:
+                logger.info(f"Waiting {min_cooldown} seconds for instance cooldown...")
+                time.sleep(min_cooldown)
+                available_instances = [inst for inst in self.working_instances if not self._is_instance_in_cooldown(inst)]
+        
         # 嘗試所有可用的實例
-        for instance in self.working_instances:
+        for instance in available_instances:
             try:
                 url = f"{instance}/{username}"
                 logger.info(f"Fetching tweets from Nitter: {url}")
@@ -180,7 +229,13 @@ class NitterClient:
                         return posts
                     
                     if response.status_code == 429:
-                        logger.warning(f"Rate limited on {instance}, trying next instance...")
+                        logger.warning(f"Rate limited on {instance}, applying backoff strategy...")
+                        self._record_rate_limit(instance)
+                        
+                        # 使用指數退避延遲
+                        backoff_delay = self._get_backoff_delay(instance)
+                        logger.info(f"Backing off for {backoff_delay} seconds before trying next instance...")
+                        time.sleep(backoff_delay)
                         continue
                         
                     if response.status_code != 200:
@@ -220,54 +275,8 @@ class NitterClient:
                 logger.error(f"Error fetching from {instance}: {e}")
                 continue  # 嘗試下一個實例
         
-        # 如果所有實例都失敗，嘗試使用公開爬蟲
-        logger.warning(f"All Nitter instances failed for @{username}, trying public scraper as fallback")
-        
-        try:
-            from .x_scraper_public_simple import collect_public_tweets
-            logger.info(f"Attempting to collect tweets using public scraper for @{username}")
-            
-            # 使用非同步運行
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            
-            try:
-                public_tweets = loop.run_until_complete(collect_public_tweets(username, days_back))
-                
-                if public_tweets:
-                    logger.info(f"Successfully collected {len(public_tweets)} tweets via public scraper")
-                    
-                    # 轉換格式以匹配 Nitter 輸出
-                    for tweet in public_tweets:
-                        posts.append({
-                            'platform': tweet['platform'],
-                            'post_id': tweet['post_id'],
-                            'author_username': tweet['author_username'],
-                            'author_display_name': tweet['author_display_name'],
-                            'original_content': tweet['original_content'],
-                            'post_time': tweet['created_at'],
-                            'post_url': tweet['post_url'],
-                            'metrics': tweet.get('metrics', {}),
-                            'language': tweet.get('language', 'unknown'),
-                            'collected_at': tweet['collected_at'],
-                            'collection_method': 'public_scraper_fallback'
-                        })
-                    
-                    return posts
-                else:
-                    logger.warning(f"Public scraper returned no tweets for {username}")
-                    
-            except Exception as e:
-                logger.error(f"Error running async collect_public_tweets: {e}")
-                
-        except Exception as e:
-            logger.error(f"Public scraper also failed for {username}: {e}")
-        
-        logger.error(f"All collection methods (Nitter + public scraper) failed for @{username}")
+        # 如果所有實例都失敗，記錄錯誤並返回空列表
+        logger.error(f"All Nitter instances failed for @{username}")
         return posts
         
     def _extract_user_info(self, soup: BeautifulSoup, username: str) -> Dict[str, Any]:
