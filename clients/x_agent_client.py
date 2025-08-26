@@ -156,6 +156,38 @@ class XAgentClient:
                             post['platform'] = 'twitter'
                             post['collection_method'] = 'agent-twitter-client'
                             
+                            # 修正欄位映射以匹配資料庫 schema
+                            if 'id' in post and 'post_id' not in post:
+                                post['post_id'] = post['id']
+                                del post['id']  # 移除原始 id 欄位避免混淆
+                            
+                            if 'author' in post and 'author_username' not in post:
+                                post['author_username'] = post['author']
+                                del post['author']
+                            
+                            if 'content' in post and 'original_content' not in post:
+                                post['original_content'] = post['content']
+                                del post['content']
+                            
+                            if 'url' in post and 'post_url' not in post:
+                                post['post_url'] = post['url']
+                                del post['url']
+                            
+                            # 確保有 collected_at 欄位
+                            if 'collected_at' not in post:
+                                post['collected_at'] = datetime.utcnow().isoformat()
+                            
+                            # 驗證必要欄位存在（資料庫 schema 必填欄位）
+                            required_fields = ['post_id', 'author_username', 'platform']
+                            missing_fields = [field for field in required_fields if not post.get(field)]
+                            if missing_fields:
+                                logger.warning(f"Post missing required fields {missing_fields}: {post}")
+                                # 使用預設值填補缺失的必填欄位
+                                if 'post_id' not in post:
+                                    post['post_id'] = f"unknown_{datetime.utcnow().timestamp()}"
+                                if 'author_username' not in post:
+                                    post['author_username'] = username
+                            
                             if post.get('post_time'):
                                 try:
                                     # 確保是 ISO 格式字串
