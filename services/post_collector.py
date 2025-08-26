@@ -259,17 +259,8 @@ class PostCollector:
         posts = []
         
         try:
-            if platform in ['twitter', 'x'] and self.x_client:
-                # 記錄使用的客戶端類型
-                client_type = type(self.x_client).__name__
-                logger.info(f"Collecting posts for @{username} using {client_type}")
-                
-                posts = self.x_client.get_user_tweets(username, days_back=1)
-                
-                # 為爬蟲收集的貼文添加標記
-                if collection_method == 'scraper':
-                    for post in posts:
-                        post['collection_method'] = 'scraper'
+            if platform in ['twitter', 'x']:
+                posts = self._collect_twitter_posts_with_fallback(username)
                         
             elif platform == 'linkedin' and self.linkedin_client:
                 posts = self.linkedin_client.get_user_posts(username, days_back=1)
@@ -284,6 +275,137 @@ class PostCollector:
             logger.error(f"Error collecting posts for {platform}/@{username}: {e}")
         
         return posts
+    
+    def _collect_twitter_posts_with_fallback(self, username: str) -> List[Dict[str, Any]]:
+        """使用 fallback 機制收集 Twitter 貼文"""
+        posts = []
+        
+        # 首先嘗試當前客戶端
+        if self.x_client:
+            current_client_type = type(self.x_client).__name__
+            logger.info(f"Trying primary client {current_client_type} for @{username}")
+            
+            try:
+                posts = self.x_client.get_user_tweets(username, days_back=1)
+                if posts:
+                    logger.info(f"✓ Successfully got {len(posts)} posts from {current_client_type}")
+                    return posts
+                else:
+                    logger.warning(f"Primary client {current_client_type} returned no posts for @{username}")
+            except Exception as e:
+                error_msg = str(e).lower()
+                logger.warning(f"Primary client {current_client_type} failed for @{username}: {e}")
+                
+                # 檢查是否是 TwitterFallbackRequired 異常
+                if "twitterfallbackrequired" in str(type(e)).lower() or "twitter error 399" in error_msg:
+                    logger.info("Twitter Error 399 or similar detected, immediate fallback required...")
+                elif self._should_fallback(error_msg):
+                    logger.info("Error indicates need for fallback, trying alternative client...")
+                else:
+                    logger.info("Attempting fallback due to general error...")
+        
+        # Fallback: 嘗試其他可用的客戶端
+        logger.info(f"Attempting fallback for @{username}")
+        return self._try_fallback_clients(username)
+    
+    def _should_fallback(self, error_msg: str) -> bool:
+        """判斷錯誤是否需要 fallback"""
+        fallback_indicators = [
+            'error 399',
+            'incorrect. please try again',
+            'authentication',
+            'auth',
+            'login',
+            'blocked',
+            'suspended',
+            'rate limit',
+            'timeout',
+            'connection',
+            'network'
+        ]
+        
+        return any(indicator in error_msg for indicator in fallback_indicators)
+    
+    def _try_fallback_clients(self, username: str) -> List[Dict[str, Any]]:
+        """嘗試 fallback 客戶端"""
+        posts = []
+        current_client_type = type(self.x_client).__name__ if self.x_client else "None"
+        
+        # 根據當前客戶端類型決定 fallback 順序
+        if current_client_type == "XAgentClient":
+            # 如果當前是 Agent Client，fallback 到 Nitter
+            logger.info("Attempting fallback to Nitter...")
+            posts = self._try_nitter_fallback(username)
+        elif current_client_type == "NitterClient":
+            # 如果當前是 Nitter，嘗試 Agent Client（如果有配置）
+            logger.info("Attempting fallback to Agent Client...")
+            posts = self._try_agent_fallback(username)
+        else:
+            # 沒有主要客戶端，按優先順序嘗試
+            logger.info("No primary client, trying all available clients...")
+            for client_type in TWITTER_CLIENT_PRIORITY:
+                client_type = client_type.strip().lower()
+                if client_type == "agent":
+                    posts = self._try_agent_fallback(username)
+                elif client_type == "nitter":
+                    posts = self._try_nitter_fallback(username)
+                
+                if posts:
+                    break
+        
+        return posts
+    
+    def _try_nitter_fallback(self, username: str) -> List[Dict[str, Any]]:
+        """嘗試使用 Nitter 作為 fallback"""
+        try:
+            if not NITTER_INSTANCES:
+                logger.info("No Nitter instances configured for fallback")
+                return []
+            
+            from clients.nitter_client import NitterClient
+            nitter_client = NitterClient()
+            
+            if nitter_client.test_connection():
+                logger.info("✓ Nitter fallback client available, fetching posts...")
+                posts = nitter_client.get_user_tweets(username, days_back=1)
+                if posts:
+                    logger.info(f"✓ Nitter fallback successful: got {len(posts)} posts for @{username}")
+                    return posts
+                else:
+                    logger.warning("Nitter fallback returned no posts")
+            else:
+                logger.warning("Nitter fallback unavailable - no working instances")
+                
+        except Exception as e:
+            logger.error(f"Nitter fallback failed for @{username}: {e}")
+        
+        return []
+    
+    def _try_agent_fallback(self, username: str) -> List[Dict[str, Any]]:
+        """嘗試使用 Agent Client 作為 fallback"""
+        try:
+            if not os.getenv('TWITTER_USERNAME') or not os.getenv('TWITTER_PASSWORD'):
+                logger.info("Twitter credentials not configured, cannot use Agent fallback")
+                return []
+            
+            from clients.x_agent_client import XAgentClient
+            agent_client = XAgentClient()
+            
+            if agent_client.is_available():
+                logger.info("✓ Agent fallback client available, fetching posts...")
+                posts = agent_client.get_user_tweets(username, days_back=1)
+                if posts:
+                    logger.info(f"✓ Agent fallback successful: got {len(posts)} posts for @{username}")
+                    return posts
+                else:
+                    logger.warning("Agent fallback returned no posts")
+            else:
+                logger.warning("Agent fallback unavailable")
+                
+        except Exception as e:
+            logger.error(f"Agent fallback failed for @{username}: {e}")
+        
+        return []
     
     def _get_account_category(self, platform: str, username: str) -> str:
         """獲取帳號分類"""

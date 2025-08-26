@@ -7,12 +7,18 @@ Twitter Agent Client
 import subprocess
 import json
 import os
+import time
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+class TwitterFallbackRequired(Exception):
+    """當遇到需要 fallback 到其他客戶端的 Twitter 錯誤時拋出"""
+    pass
 
 
 class XAgentClient:
@@ -163,6 +169,12 @@ class XAgentClient:
                         error_msg = result.get('error', 'Unknown error')
                         logger.error(f"CLI returned error: {error_msg}")
                         
+                        # 檢查是否是需要 fallback 的錯誤
+                        if self._is_fallback_error(error_msg):
+                            logger.warning(f"Detected fallback-required error for @{username}: {error_msg}")
+                            # 拋出特殊異常以觸發 fallback
+                            raise TwitterFallbackRequired(f"Twitter Error 399 or similar detected: {error_msg}")
+                        
                         # 如果是認證問題，重試
                         if 'auth' in error_msg.lower() or 'login' in error_msg.lower():
                             if attempt < self.max_retries - 1:
@@ -186,6 +198,30 @@ class XAgentClient:
             logger.error(f"Error fetching tweets for @{username}: {e}")
         
         return posts
+    
+    def _is_fallback_error(self, error_msg: str) -> bool:
+        """檢查錯誤是否需要 fallback 到其他客戶端"""
+        error_msg_lower = error_msg.lower()
+        
+        # Twitter Error 399 和相關的反機器人保護錯誤
+        fallback_patterns = [
+            'error 399',
+            'incorrect. please try again',
+            'authorization required',
+            'not authorized',
+            'suspended',
+            'account suspended',
+            'blocked',
+            'rate limit exceeded',
+            'too many requests',
+            'challenge required',
+            'phone verification',
+            'verify your identity',
+            'automation detected',
+            'unusual activity'
+        ]
+        
+        return any(pattern in error_msg_lower for pattern in fallback_patterns)
     
     def is_available(self) -> bool:
         """檢查客戶端是否可用"""
