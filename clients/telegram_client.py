@@ -27,7 +27,7 @@ class TelegramClient:
             logger.warning("Telegram is enabled but TELEGRAM_CHAT_ID is not set")
             self.enabled = False
             
-    def send_message(self, text: str, parse_mode: str = "Markdown") -> bool:
+    def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """
         Send a message to the configured Telegram chat
         
@@ -77,7 +77,7 @@ class TelegramClient:
             logger.error(f"Error sending Telegram message: {e}")
             return False
             
-    def send_long_message(self, text: str, parse_mode: str = "Markdown") -> bool:
+    def send_long_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """
         Send a long message, splitting if necessary (Telegram has 4096 char limit)
         

@@ -149,7 +149,7 @@ class ReportGenerator:
         for post in posts:
             # Use summary if available, otherwise use original content (truncated)
             content = post.summary if post.summary else post.original_content[:200]
-            posts_list.append(f"@{post.author_username}: {content}")
+            posts_list.append(f"<a href=\"https://x.com/{post.author_username}\">@{post.author_username}</a>: {content}")
             
         return "\n".join(posts_list)
         
@@ -167,7 +167,7 @@ class ReportGenerator:
             
         # Format by author
         for author, author_posts in posts_by_author.items():
-            summary += f"【@{author}】\n"
+            summary += f"【<a href=\"https://x.com/{author}\">@{author}</a>】\n"
             for post in author_posts[:3]:  # Limit to 3 posts per author
                 content = post.summary if post.summary else post.original_content[:100]
                 summary += f"• {content}...\n"
@@ -242,8 +242,8 @@ Group by account if needed. Keep it brief and highlight key information. Format 
                 logger.info("No report to send (no important posts)")
                 return False
                 
-            # Send via Telegram (use plain text mode to avoid formatting errors)
-            if self.telegram.send_long_message(report, parse_mode=None):
+            # Send via Telegram (use HTML mode to enable clickable links)
+            if self.telegram.send_long_message(report, parse_mode="HTML"):
                 logger.info("Daily report sent successfully via Telegram")
                 return True
             else:
