@@ -149,7 +149,10 @@ class ReportGenerator:
         for post in posts:
             # Use summary if available, otherwise use original content (truncated)
             content = post.summary if post.summary else post.original_content[:200]
-            posts_list.append(f"<a href=\"https://x.com/{post.author_username}\">@{post.author_username}</a>: {content}")
+            
+            # Use post_url if available, otherwise fallback to user profile
+            link_url = post.post_url if post.post_url else f"https://x.com/{post.author_username}"
+            posts_list.append(f"<a href=\"{link_url}\">@{post.author_username}</a>: {content}")
             
         return "\n".join(posts_list)
         
@@ -170,7 +173,10 @@ class ReportGenerator:
             summary += f"【<a href=\"https://x.com/{author}\">@{author}</a>】\n"
             for post in author_posts[:3]:  # Limit to 3 posts per author
                 content = post.summary if post.summary else post.original_content[:100]
-                summary += f"• {content}...\n"
+                
+                # Use post_url if available, otherwise fallback to user profile
+                link_url = post.post_url if post.post_url else f"https://x.com/{post.author_username}"
+                summary += f"• <a href=\"{link_url}\">{content}...</a>\n"
             summary += "\n"
             
         return summary
