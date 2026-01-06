@@ -39,9 +39,12 @@ class PostCollector:
         
         for client_type in TWITTER_CLIENT_PRIORITY:
             client_type = client_type.strip().lower()
-            
+
             try:
-                if client_type == "nitter":
+                if client_type == "apify":
+                    if self._try_apify_client():
+                        return
+                elif client_type == "nitter":
                     if self._try_nitter_client():
                         return
                 elif client_type == "agent":
@@ -80,14 +83,14 @@ class PostCollector:
         """嘗試初始化 agent-twitter-client"""
         try:
             from clients.x_agent_client import XAgentClient
-            
+
             # 檢查配置
             if not os.getenv('TWITTER_USERNAME') or not os.getenv('TWITTER_PASSWORD'):
                 logger.info("Twitter credentials not configured for Agent Client, skipping")
                 return False
-            
+
             agent_client = XAgentClient()
-            
+
             # 測試連接
             if agent_client.is_available():
                 self.x_client = agent_client
@@ -97,13 +100,35 @@ class PostCollector:
             else:
                 logger.warning("✗ Agent client not available")
                 return False
-                
+
         except Exception as e:
             logger.warning(f"Agent client initialization failed: {e}")
             return False
-    
-    
-    
+
+    def _try_apify_client(self) -> bool:
+        """嘗試初始化 Apify Twitter client"""
+        try:
+            if not os.getenv('APIFY_API_TOKEN'):
+                logger.info("Apify API token not configured, skipping")
+                return False
+
+            from clients.apify_twitter_client import ApifyTwitterClient
+            apify_client = ApifyTwitterClient()
+
+            if apify_client.is_available():
+                self.x_client = apify_client
+                logger.info("✓ X (Twitter) Apify client initialized successfully")
+                logger.info("Using Apify twitter-scraper-lite actor")
+                return True
+            else:
+                logger.warning("✗ Apify client not available")
+                return False
+
+        except Exception as e:
+            logger.warning(f"Apify client initialization failed: {e}")
+            return False
+
+
     def collect_all_posts(self) -> Dict[str, Any]:
         """
         收集所有帳號的貼文並進行AI分析
@@ -148,15 +173,28 @@ class PostCollector:
                     all_existing_post_ids[platform].update(existing_post_ids_all[platform])
             
             logger.info(f"Total existing posts - URLs: {len(existing_urls)}, Post IDs: {sum(len(ids) for ids in all_existing_post_ids.values())}")
-            
+
             # 4. 收集所有平台的貼文
             all_posts = []
-            
+
+            # 4a. 先批次處理所有 Twitter 帳號（提高效率）
+            twitter_accounts = [acc for acc in accounts if acc.get('active', True) and acc.get('platform', '').lower() in ['twitter', 'x']]
+            if twitter_accounts:
+                logger.info(f"Processing {len(twitter_accounts)} Twitter accounts in batch mode")
+                twitter_posts = self._collect_twitter_posts_batch(twitter_accounts, existing_urls, all_existing_post_ids)
+                all_posts.extend(twitter_posts)
+
+            # 4b. 處理其他平台的帳號（Twitter 已批次處理，跳過）
             for account in accounts:
                 if not account.get('active', True):
                     continue
-                
+
                 platform = account['platform'].lower()
+
+                # 跳過 Twitter 帳號（已在批次處理中完成）
+                if platform in ['twitter', 'x']:
+                    continue
+
                 username = account['username']
                 
                 try:
@@ -276,6 +314,106 @@ class PostCollector:
         
         return posts
     
+    def _collect_twitter_posts_batch(self, twitter_accounts: List[Dict], existing_urls: set, all_existing_post_ids: Dict) -> List[Dict[str, Any]]:
+        """批次收集所有 Twitter 帳號的貼文（一次 API 調用）"""
+        all_posts = []
+
+        if not twitter_accounts or not self.x_client:
+            return all_posts
+
+        # 檢查客戶端是否支援批次查詢
+        if not hasattr(self.x_client, 'get_batch_tweets'):
+            logger.warning("Current Twitter client doesn't support batch queries, falling back to individual fetch")
+            # Fallback 到逐個查詢
+            for account in twitter_accounts:
+                username = account['username']
+                try:
+                    posts = self._collect_twitter_posts_with_fallback(username)
+                    # 處理去重和分類
+                    for post in posts:
+                        post['category'] = self._get_account_category('twitter', username)
+                    all_posts.extend(self._deduplicate_posts(posts, existing_urls, all_existing_post_ids))
+                except Exception as e:
+                    logger.error(f"Error collecting posts for @{username}: {e}")
+            return all_posts
+
+        # 提取所有用戶名
+        usernames = [acc['username'] for acc in twitter_accounts]
+
+        try:
+            # 批次獲取所有用戶的推文（一次 API 調用）
+            logger.info(f"Batch fetching tweets for {len(usernames)} users with single API call")
+            results_by_user = self.x_client.get_batch_tweets(usernames, days_back=1)
+
+            # 處理每個用戶的結果
+            for account in twitter_accounts:
+                username = account['username']
+                posts = results_by_user.get(username, [])
+
+                if posts:
+                    # 添加帳號分類信息
+                    for post in posts:
+                        post['category'] = self._get_account_category('twitter', username)
+
+                    # 去重
+                    new_posts = self._deduplicate_posts(posts, existing_urls, all_existing_post_ids)
+
+                    if new_posts:
+                        all_posts.extend(new_posts)
+                        logger.info(f"Collected {len(new_posts)} new posts from @{username}")
+                    else:
+                        logger.info(f"No new posts from @{username} (all filtered as duplicates)")
+                else:
+                    logger.info(f"No posts from @{username}")
+
+            logger.info(f"Batch collection complete: {len(all_posts)} total new posts from {len(usernames)} accounts")
+            return all_posts
+
+        except Exception as e:
+            logger.error(f"Batch fetch failed: {e}, falling back to individual fetch")
+            # Fallback: 逐個獲取
+            for account in twitter_accounts:
+                username = account['username']
+                try:
+                    posts = self._collect_twitter_posts_with_fallback(username)
+                    for post in posts:
+                        post['category'] = self._get_account_category('twitter', username)
+                    all_posts.extend(self._deduplicate_posts(posts, existing_urls, all_existing_post_ids))
+                except Exception as err:
+                    logger.error(f"Failed to fetch @{username}: {err}")
+
+            return all_posts
+
+    def _deduplicate_posts(self, posts: List[Dict[str, Any]], existing_urls: set, all_existing_post_ids: Dict) -> List[Dict[str, Any]]:
+        """去除重複的貼文"""
+        new_posts = []
+        url_duplicates = 0
+        id_duplicates = 0
+
+        for post in posts:
+            post_url = post.get('post_url')
+            post_id = post.get('post_id')
+            post_platform = post.get('platform', '').lower()
+
+            # 檢查 URL 重複
+            if post_url and post_url in existing_urls:
+                url_duplicates += 1
+                logger.debug(f"Skipping duplicate URL: {post_url}")
+                continue
+
+            # 檢查 post_id 重複
+            if post_id and post_platform in all_existing_post_ids and post_id in all_existing_post_ids[post_platform]:
+                id_duplicates += 1
+                logger.debug(f"Skipping duplicate post_id: {post_platform}/{post_id}")
+                continue
+
+            new_posts.append(post)
+
+        if url_duplicates > 0 or id_duplicates > 0:
+            logger.debug(f"Filtered {url_duplicates} URL duplicates and {id_duplicates} ID duplicates")
+
+        return new_posts
+
     def _collect_twitter_posts_with_fallback(self, username: str) -> List[Dict[str, Any]]:
         """使用 fallback 機制收集 Twitter 貼文"""
         posts = []
@@ -330,29 +468,35 @@ class PostCollector:
         """嘗試 fallback 客戶端"""
         posts = []
         current_client_type = type(self.x_client).__name__ if self.x_client else "None"
-        
+
         # 根據當前客戶端類型決定 fallback 順序
-        if current_client_type == "XAgentClient":
+        if current_client_type == "ApifyTwitterClient":
+            # 如果當前是 Apify Client，fallback 到 Nitter
+            logger.info("Attempting fallback to Nitter...")
+            posts = self._try_nitter_fallback(username)
+        elif current_client_type == "XAgentClient":
             # 如果當前是 Agent Client，fallback 到 Nitter
             logger.info("Attempting fallback to Nitter...")
             posts = self._try_nitter_fallback(username)
         elif current_client_type == "NitterClient":
-            # 如果當前是 Nitter，嘗試 Agent Client（如果有配置）
-            logger.info("Attempting fallback to Agent Client...")
-            posts = self._try_agent_fallback(username)
+            # 如果當前是 Nitter，嘗試 Apify Client（如果有配置）
+            logger.info("Attempting fallback to Apify Client...")
+            posts = self._try_apify_fallback(username)
         else:
             # 沒有主要客戶端，按優先順序嘗試
             logger.info("No primary client, trying all available clients...")
             for client_type in TWITTER_CLIENT_PRIORITY:
                 client_type = client_type.strip().lower()
-                if client_type == "agent":
+                if client_type == "apify":
+                    posts = self._try_apify_fallback(username)
+                elif client_type == "agent":
                     posts = self._try_agent_fallback(username)
                 elif client_type == "nitter":
                     posts = self._try_nitter_fallback(username)
-                
+
                 if posts:
                     break
-        
+
         return posts
     
     def _try_nitter_fallback(self, username: str) -> List[Dict[str, Any]]:
@@ -387,10 +531,10 @@ class PostCollector:
             if not os.getenv('TWITTER_USERNAME') or not os.getenv('TWITTER_PASSWORD'):
                 logger.info("Twitter credentials not configured, cannot use Agent fallback")
                 return []
-            
+
             from clients.x_agent_client import XAgentClient
             agent_client = XAgentClient()
-            
+
             if agent_client.is_available():
                 logger.info("✓ Agent fallback client available, fetching posts...")
                 posts = agent_client.get_user_tweets(username, days_back=1)
@@ -401,12 +545,38 @@ class PostCollector:
                     logger.warning("Agent fallback returned no posts")
             else:
                 logger.warning("Agent fallback unavailable")
-                
+
         except Exception as e:
             logger.error(f"Agent fallback failed for @{username}: {e}")
-        
+
         return []
-    
+
+    def _try_apify_fallback(self, username: str) -> List[Dict[str, Any]]:
+        """嘗試使用 Apify Client 作為 fallback"""
+        try:
+            if not os.getenv('APIFY_API_TOKEN'):
+                logger.info("Apify API token not configured, cannot use Apify fallback")
+                return []
+
+            from clients.apify_twitter_client import ApifyTwitterClient
+            apify_client = ApifyTwitterClient()
+
+            if apify_client.is_available():
+                logger.info("✓ Apify fallback client available, fetching posts...")
+                posts = apify_client.get_user_tweets(username, days_back=1)
+                if posts:
+                    logger.info(f"✓ Apify fallback successful: got {len(posts)} posts for @{username}")
+                    return posts
+                else:
+                    logger.warning("Apify fallback returned no posts")
+            else:
+                logger.warning("Apify fallback unavailable")
+
+        except Exception as e:
+            logger.error(f"Apify fallback failed for @{username}: {e}")
+
+        return []
+
     def _get_account_category(self, platform: str, username: str) -> str:
         """獲取帳號分類"""
         try:

@@ -28,3 +28,6 @@ playwright-stealth==1.0.6
 
 # Telegram bot dependencies
 python-telegram-bot>=20.0
+
+# Apify client for Twitter scraping
+apify-client==1.7.0

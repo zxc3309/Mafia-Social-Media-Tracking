@@ -75,8 +75,8 @@ REPOST_GENERATION_PROMPT = os.getenv("REPOST_GENERATION_PROMPT", """
 """)
 
 # Twitter 客戶端優先順序配置
-# 可選值: "agent", "nitter"
-TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "agent,nitter").split(",")
+# 可選值: "apify", "nitter", "agent"
+TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "apify,nitter").split(",")
 
 # 平台配置
 PLATFORMS = {
@@ -120,6 +120,11 @@ AGENT_CLIENT_CONFIG = {
     "timeout": int(os.getenv("AGENT_CLIENT_TIMEOUT", "60")),  # CLI 執行超時(秒)
     "max_retries": int(os.getenv("AGENT_CLIENT_RETRIES", "3"))  # 重試次數
 }
+
+# Apify Client 配置
+APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")
+APIFY_MAX_ITEMS = int(os.getenv("APIFY_MAX_ITEMS", "100"))  # 每次請求最大推文數量
+APIFY_TIMEOUT = int(os.getenv("APIFY_TIMEOUT", "300"))  # API 超時時間（秒）
 
 # 重要性篩選閾值
 IMPORTANCE_THRESHOLD = int(os.getenv("IMPORTANCE_THRESHOLD", "8"))
