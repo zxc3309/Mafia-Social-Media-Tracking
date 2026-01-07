@@ -5,14 +5,12 @@
 ## 功能特點
 
 - 🔍 **多平台支持**: 支持 X (Twitter) 和 LinkedIn 數據收集
-- 🆓 **免費優先**: 優先使用 X Agent Client，備用 Nitter 服務，無需官方 API 金鑰
-- 🔄 **智能切換**: 自動在 Agent → Nitter → API 間切換，確保穩定收集
+- 🔄 **智能切換**: 自動在 Apify → Nitter 間切換，確保穩定收集
 - 📊 **Google Sheets 整合**: 從 Google Sheets 讀取追蹤列表，結果自動寫回
 - 🤖 **AI 驅動分析**: 使用 OpenAI 或 Anthropic API 進行重要性評分、內容摘要和轉發內容生成
 - 📱 **Telegram 通知**: 自動發送每日報告到 Telegram，帳號名稱可直接點擊
 - ⏰ **定時任務**: 支持每日自動收集和報告推送
 - 💾 **數據持久化**: 使用 SQLAlchemy 進行數據存儲和管理
-- 🔧 **會話管理**: 智能 Cookie 緩存和跨進程會話共享，減少登入頻率
 - 🎯 **智能優化**: 基於人工反饋自動優化 AI 評分準確性
 - 🎛️ **靈活配置**: 所有 AI prompts 和系統參數都可以通過配置文件調整
 
@@ -21,9 +19,9 @@
 ```
 社交媒體追蹤系統/
 ├── clients/                    # API 客戶端
+│   ├── apify_twitter_client.py # Apify Twitter 爬蟲 (主要)
+│   ├── nitter_client.py       # Nitter (免費備用)
 │   ├── google_sheets_client.py # Google Sheets API
-│   ├── nitter_client.py       # Nitter (免費 Twitter 前端)
-│   ├── x_agent_client.py      # X Agent (無需官方API)
 │   ├── linkedin_client.py     # LinkedIn API
 │   ├── ai_client.py           # AI 分析服務
 │   └── telegram_client.py     # Telegram Bot 通知
@@ -33,26 +31,21 @@
 │   └── report_generator.py    # Telegram 報告生成
 ├── models/                    # 數據模型
 │   └── database.py            # 數據庫模型和管理
-├── node_service/              # Node.js 服務
-│   ├── twitter_cli.js         # Agent Twitter Client CLI
-│   └── agent-twitter-client/  # 編譯後的 Twitter Agent
+├── app.py                     # Web 服務 (Railway 部署用)
 ├── config.py                  # 配置管理
-├── main.py                    # 主程序
-├── prompt_optimizer.py        # AI Prompt 優化工具
-├── sync_database_to_sheets.py # 數據庫同步工具
-└── requirements.txt           # 依賴包
+├── main.py                    # CLI 主程序
+└── requirements.txt           # Python 依賴包
 ```
 
 ## 核心工作流程
 
-1. **每日收集**: `main.py` 使用 X Agent Client 或 Nitter 自動收集社交媒體貼文
-2. **智能切換**: 遇到限制時自動在 X Agent → Nitter → API 間切換
+1. **每日收集**: `main.py` 使用 Apify 自動收集社交媒體貼文
+2. **智能切換**: 遇到限制時自動在 Apify → Nitter 間切換
 3. **數據處理**: 統一數據格式，修正欄位映射，確保數據庫兼容性
 4. **AI 分析**: 使用 AI 評分貼文重要性（1-10分）並生成摘要
 5. **數據存儲**: 結果同時寫入數據庫和 Google Sheets
 6. **Telegram 報告**: 自動生成並發送每日重要貼文報告（含可點擊連結）
 7. **人工反饋**: 在 Google Sheets 中提供評分和文字反饋
-8. **智能優化**: `prompt_optimizer.py` 分析反饋並自動優化 AI prompt
 
 ## Google Sheets 工作表說明
 
@@ -107,19 +100,6 @@ AI_API_KEY=your_openai_api_key
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PATH=credentials/service-account.json
 
 # =============================================================================
-# Twitter 認證客戶端配置 (推薦 - 高速且穩定)
-# =============================================================================
-
-# Twitter 帳號密碼認證 (X Agent Client) - 最佳選擇
-TWITTER_USERNAME=your_twitter_username
-TWITTER_PASSWORD=your_twitter_password
-TWITTER_EMAIL=your_twitter_email@gmail.com              # 可選，用於 email 驗證
-TWITTER_2FA_SECRET=your_totp_secret                 # 可選，用於兩步驟驗證
-
-# 啟用認證客戶端
-TWITTER_USE_AUTH_CLIENT=true
-
-# =============================================================================
 # Telegram Bot 配置 (可選 - 用於每日報告)
 # =============================================================================
 
@@ -133,11 +113,15 @@ TELEGRAM_CHAT_ID=your_telegram_chat_id
 TELEGRAM_ENABLED=true
 
 # =============================================================================
-# 備用配置
+# Apify 配置 (推薦 - 穩定可靠)
 # =============================================================================
 
-# X (Twitter) API (最後備案 - 當 auth 和 nitter 都失敗時使用)
-X_API_BEARER_TOKEN=your_twitter_api_bearer_token
+# Apify API Token (從 apify.com 獲取)
+APIFY_API_TOKEN=your_apify_api_token
+
+# =============================================================================
+# 備用配置
+# =============================================================================
 
 # LinkedIn API (可選)
 LINKEDIN_API_KEY=your_linkedin_api_key
@@ -145,39 +129,17 @@ LINKEDIN_API_KEY=your_linkedin_api_key
 
 **重要說明**: 
 
-### X Agent Client 認證設置
-1. **必須設定** (用於登入 Twitter):
-   - `TWITTER_USERNAME`: 您的 Twitter 用戶名 (不含 @)
-   - `TWITTER_PASSWORD`: 您的 Twitter 密碼
+### Apify 配置 (推薦)
+1. 前往 [Apify](https://apify.com) 註冊帳號
+2. 在 Settings → Integrations 獲取 API Token
+3. 設定 `APIFY_API_TOKEN` 環境變數
+4. 系統會自動使用 Apify 作為首選 Twitter 數據來源
 
-2. **可選設定**:
-   - `TWITTER_EMAIL`: 如果 Twitter 要求 email 驗證時需要
-   - `TWITTER_2FA_SECRET`: 如果啟用了兩步驟驗證，請提供 TOTP 密鑰
+**客戶端優先順序** (可在 `config.py` 的 `TWITTER_CLIENT_PRIORITY` 調整):
+   - 第一優先：Apify (推薦，穩定可靠)
+   - 第二備案：Nitter 公開實例 (免費，但可能不穩定)
 
-3. **2FA Secret 獲取方法**:
-   - 在 Twitter 設定中啟用兩步驟驗證
-   - 選擇「身份驗證應用程式」選項
-   - 掃描 QR 碼時，記下顯示的密鑰字串
-
-4. **客戶端優先順序**:
-   - 第一優先：X Agent Client (推薦，最快最穩定)
-   - 第二備案：Nitter 公開實例 (無需帳號，但較慢且不穩定)
-   - 最後備案：官方 Twitter API (需要 Bearer Token)
-
-### 3. Node.js 環境設置
-
-X Agent Client 需要 Node.js 環境：
-
-```bash
-# 安裝 Node.js 18 或更高版本
-node --version  # 應該 >= 18.0.0
-
-# 進入 node_service 目錄安裝依賴
-cd node_service
-npm install
-```
-
-### 4. Google Sheets API 設置
+### 3. Google Sheets API 設置
 
 1. 在 [Google Cloud Console](https://console.cloud.google.com/) 創建項目
 2. 啟用 Google Sheets API 和 Google Drive API
@@ -197,44 +159,28 @@ npm install
 
 ## Twitter 數據收集方式
 
-系統支援三種 Twitter 數據收集方式，並按以下優先順序自動選擇：
+系統支援兩種 Twitter 數據收集方式，並按以下優先順序自動選擇：
 
-### 1. 🔄 X Agent Client (首選 - 高效穩定)
-- **優點**: 高速穩定、智能會話管理、跨進程狀態共享、減少登入頻率
-- **缺點**: 需要 Twitter 帳號密碼，可能遇到反機器人檢測
-- **適用**: 推薦作為首選，特別適用於高頻率收集
-- **功能**: 24小時會話持續、Cookie 緩存、會話狀態檔案共享
+### 1. 🚀 Apify Twitter Scraper (首選 - 穩定可靠)
+- **優點**: 穩定可靠、支援批次查詢、無需維護帳號登入
+- **缺點**: 需要 Apify API Token，按使用量計費
+- **適用**: 推薦作為首選，特別適用於生產環境
+- **配置**: 設定 `APIFY_API_TOKEN` 環境變數
 
 ### 2. 🆓 Nitter (備用 - 免費)
 - **優點**: 完全免費、無需帳號、不會被封鎖、零風險
 - **缺點**: 依賴公開 Nitter 實例的可用性，速度較慢
-- **適用**: Agent Client 不可用時的穩定備用方案
-
-### 3. 📡 官方 API (最後備案)
-- **優點**: 最穩定可靠、官方支持
-- **缺點**: 有嚴格的速率限制、需要付費（免費額度很低）
-- **適用**: 其他所有方案都不可用時的最終備案
+- **適用**: Apify 不可用時的免費備用方案
 
 ### 智能切換邏輯
 ```
-1. X Agent Client → 檢查認證配置 → 登入成功則使用
-2. Agent 失敗 → Fallback 到 Nitter → 檢測可用實例 → 成功則使用
-3. Nitter 失敗 → 使用 Twitter API (需要有效的 Bearer Token)
+1. Apify → 檢查 API Token → 有效則使用
+2. Apify 失敗 → Fallback 到 Nitter → 檢測可用實例 → 成功則使用
 
 特殊情況處理：
-- Twitter Error 399 或反機器人檢測 → 自動 Fallback 到 Nitter
-- 會話過期或認證失敗 → 自動重新登入
-- 多個帳號同時收集 → 共享會話狀態，減少登入次數
+- API 錯誤或超時 → 自動切換到 Nitter
+- 所有客戶端都失敗 → 記錄錯誤並繼續處理其他帳號
 ```
-
-### 會話管理功能
-新版 X Agent Client 具備智能會話管理：
-
-- **Cookie 緩存**: 登入成功後自動保存 Cookie，下次使用時直接加載
-- **會話狀態共享**: 使用 JSON 檔案在不同 CLI 進程間共享登入狀態
-- **24小時持續**: 會話有效期 24 小時，適合雲端部署
-- **智能重試**: 遇到認證錯誤時自動清理狀態並重新登入
-- **分散式部署**: 支持多個 Railway 實例同時使用相同帳號
 
 ## 使用方法
 
@@ -246,6 +192,9 @@ python main.py --run-once
 
 # 啟動定時任務調度器（每日自動執行）
 python main.py --start-scheduler
+
+# 啟動 Web 服務器（用於 Railway 部署）
+python main.py --web-server
 
 # 只收集特定平台數據
 python main.py --platform twitter
@@ -259,15 +208,8 @@ python main.py --stats
 # 查看 API 使用統計
 python main.py --api-stats
 
-# 同步數據庫到 Google Sheets
-python sync_database_to_sheets.py
-
-# 分析人工反饋並優化 AI prompt
-python prompt_optimizer.py --analyze
-python prompt_optimizer.py --optimize --auto
-
-# 直接測試 X Agent Client 功能
-node node_service/twitter_cli.js username 1
+# 測試系統連接
+python main.py --test
 ```
 
 ## Railway 雲端部署
@@ -326,19 +268,11 @@ node node_service/twitter_cli.js username 1
 - **統計數據**: 包含收集成功率、重要貼文數量等統計
 - **自動分割**: 超過 Telegram 字數限制時自動分割發送
 
-### 🔧 進階會話管理
+### 🔍 數據收集功能
 
-- **跨進程狀態共享**: 多個帳號收集時共享相同登入會話
-- **24小時會話保持**: 優化為雲端部署環境，減少登入頻率
-- **智能重試機制**: 遇到 Error 399 或認證錯誤時自動切換客戶端
-- **Cookie 持久化**: 自動保存和加載 Cookie，提高登入效率
-
-### 🔍 改進的數據收集
-
-- **欄位映射修復**: 解決 X Agent Client 數據格式不一致問題
 - **數據驗證**: 在數據庫儲存前驗證必要欄位，防止錯誤
 - **容错機制**: 缺少欄位時使用預設值進行填補
-- **整合進度**: 所有收集方法現在使用一致的數據格式
+- **一致格式**: 所有收集方法使用統一的數據格式
 
 ### 🌐 雲端部署優化
 
@@ -359,10 +293,6 @@ IMPORTANCE_THRESHOLD=8
 COLLECTION_SCHEDULE_HOUR=9
 COLLECTION_SCHEDULE_MINUTE=0
 
-# Twitter 會話管理
-TWITTER_COOKIE_CACHE_DAYS=7                         # Cookie 緩存天數
-TWITTER_AUTO_REFRESH_SESSION=true                   # 自動刷新會話
-
 # 日誌級別
 LOG_LEVEL=INFO
 ```
@@ -380,30 +310,23 @@ LOG_LEVEL=INFO
 
 1. **查看收集結果**: 檢查 "Analyzed Posts" 工作表中的重要貼文
 2. **提供反饋**: 在 "All Posts & AI Scores" 中對 AI 評分提供人工反饋
-3. **優化系統**: 定期執行 prompt 優化以提高準確性
-4. **檢查日誌**: 查看 `logs/social_media_tracker.log` 了解系統狀態
+3. **檢查日誌**: 查看 `logs/social_media_tracker.log` 了解系統狀態
 
 ### 常見問題排除
 
-#### 🔄 X Agent Client 問題
-1. **登入失敗 (Login verification failed)**:
-   - 檢查 `TWITTER_USERNAME` 和 `TWITTER_PASSWORD` 是否正確
-   - 確認帳號未被凍結或限制
-   - 如啟用 2FA，檢查 `TWITTER_2FA_SECRET` 設定
-   - 系統會自動清理會話狀態並重試
+#### 🚀 Apify 問題
+1. **API Token 無效**:
+   - 檢查 `APIFY_API_TOKEN` 是否正確設定
+   - 確認 Apify 帳號餘額充足
 
-2. **Error 399 或反機器人檢測**:
-   - 系統已自動處理，會自動 Fallback 到 Nitter
-   - 無需手動介入，等待系統自動復原
-
-3. **post_id 欄位錯誤**:
-   - 已修復，系統現在會自動映射欄位名稱
-   - 如仍有問題，檢查 Node.js 版本是否 >= 18
+2. **請求超時**:
+   - 系統會自動 Fallback 到 Nitter
+   - 可調整 `APIFY_TIMEOUT` 參數
 
 #### 🆓 Nitter 問題
-4. **Nitter 實例不可用**:
+3. **Nitter 實例不可用**:
    - 系統會自動測試多個實例並選擇最佳的
-   - 如所有實例都失效，會自動切換到 X Agent Client
+   - 可在 `config.py` 中更新 Nitter 實例列表
 
 #### 📱 Telegram 問題
 5. **Telegram 報告未收到**:
@@ -418,7 +341,7 @@ LOG_LEVEL=INFO
 #### 其他問題
 7. **AI API 錯誤**: 檢查 API 密鑰和餘額
 8. **Google Sheets 權限**: 確保服務帳號有表格的編輯權限
-9. **數據同步問題**: 使用 `sync_database_to_sheets.py` 手動同步
+9. **數據同步問題**: 檢查 `logs/social_media_tracker.log` 了解詳細錯誤
 
 ## 技術支持
 

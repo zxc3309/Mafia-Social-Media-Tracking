@@ -4,7 +4,7 @@
 
 功能：
 1. 從Google Sheets讀取追蹤帳號列表
-2. 使用X和LinkedIn API收集貼文
+2. 使用 Apify 收集 Twitter 貼文
 3. 使用AI分析貼文重要性並生成摘要和轉發內容
 4. 將結果寫回Google Sheets
 5. 支持定時任務和手動執行
@@ -15,9 +15,6 @@ python main.py --run-once                # 手動執行一次完整收集
 python main.py --start-scheduler         # 啟動定時任務
 python main.py --platform twitter        # 只收集Twitter數據
 python main.py --stats                   # 查看統計信息
-python main.py --view-data               # 查看數據庫內容
-python main.py --review                  # 人工審核AI評分
-python main.py --optimize-prompt         # 優化AI分析prompt
 """
 
 import argparse
@@ -68,8 +65,7 @@ def check_and_run_migration():
         print(f"⚠️ Thread ID 遷移檢查失敗: {e}")
         # 不要因為遷移失敗而阻止應用程式啟動
     
-    # 繼續原有的 post_id 類型檢查 (保留向後相容)
-    
+    # 檢查 post_id 類型 (保留向後相容)
     try:
         from sqlalchemy import create_engine, text
         engine = create_engine(DATABASE_URL)
@@ -83,34 +79,9 @@ def check_and_run_migration():
             
             field_info = result.fetchone()
             if field_info and field_info[0] == 'integer':
-                print("❌ 檢測到 post_id 為 INTEGER 類型，需要遷移！")
-                print("🚨 啟動緊急遷移程序...")
-                
-                # 嘗試簡單遷移
-                try:
-                    import subprocess
-                    result = subprocess.run([sys.executable, "simple_migration.py"], 
-                                          capture_output=True, text=True, timeout=60)
-                    if result.returncode == 0:
-                        print("✅ 緊急遷移成功")
-                        return True
-                    else:
-                        print(f"❌ 簡單遷移失敗: {result.stderr}")
-                        
-                        # 嘗試核心選項
-                        print("🚨 嘗試核心選項遷移...")
-                        result = subprocess.run([sys.executable, "nuclear_migration.py"], 
-                                              capture_output=True, text=True, timeout=120)
-                        if result.returncode == 0:
-                            print("✅ 核心選項遷移成功")
-                            return True
-                        else:
-                            print(f"❌ 核心選項遷移也失敗: {result.stderr}")
-                            return False
-                            
-                except Exception as e:
-                    print(f"❌ 遷移執行錯誤: {e}")
-                    return False
+                print("⚠️ 檢測到 post_id 為 INTEGER 類型，可能需要手動遷移")
+                print("📝 請參考 MIGRATION_INSTRUCTIONS.md 進行手動遷移")
+                return True  # 繼續執行，讓程序自己處理
                     
             elif field_info and field_info[0] == 'character varying':
                 print("✅ post_id 字段類型正確 (VARCHAR)")
@@ -278,7 +249,7 @@ def test_connections():
         print(f"✗ Google Sheets連接失敗: {e}")
     
     # 測試Twitter客戶端連接
-    print("ℹ Twitter客戶端將在PostCollector中自動初始化（Agent或Nitter）")
+    print("ℹ Twitter客戶端將在PostCollector中自動初始化（Apify 或 Nitter）")
     
     # 測試AI API連接
     try:
@@ -291,80 +262,6 @@ def test_connections():
             print("⚠ AI API Key未配置")
     except Exception as e:
         print(f"✗ AI API連接失敗: {e}")
-
-def view_database_data():
-    """查看數據庫內容"""
-    logger = logging.getLogger(__name__)
-    
-    try:
-        # 導入並使用view_database模組
-        from view_database import show_statistics, view_analyzed_posts
-        
-        print("\n=== 數據庫內容總覽 ===")
-        show_statistics()
-        
-        print("\n=== 最近分析結果 ===")
-        view_analyzed_posts(limit=10)
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to view database: {e}")
-        print(f"查看數據庫失敗: {e}")
-        return False
-
-def start_review_system():
-    """啟動人工審核系統"""
-    logger = logging.getLogger(__name__)
-    
-    try:
-        from review_system import ReviewSystem
-        
-        review_system = ReviewSystem()
-        
-        print("\n=== 人工審核系統 ===")
-        
-        # 顯示統計信息
-        review_system.show_feedback_statistics()
-        
-        # 檢查是否有待審核的posts
-        posts_for_review = review_system.db.get_posts_for_review(limit=5)
-        
-        if not posts_for_review:
-            print("\n✅ 目前沒有需要審核的posts")
-            return True
-        
-        print(f"\n📊 找到 {len(posts_for_review)} 篇待審核posts")
-        
-        # 詢問是否開始審核
-        start_review = input("是否開始交互式審核? (y/n): ").strip().lower()
-        
-        if start_review == 'y':
-            # 建議優先審核邊界分數的posts (6-9分)
-            boundary_posts = review_system.db.get_posts_for_review(
-                limit=10, 
-                score_range=(6.0, 9.0)
-            )
-            
-            if boundary_posts:
-                print(f"\n🎯 建議優先審核邊界分數posts (6-9分): {len(boundary_posts)} 篇")
-                priority_review = input("是否優先審核邊界分數posts? (y/n): ").strip().lower()
-                
-                if priority_review == 'y':
-                    review_system.review_posts(limit=10, score_range=(6.0, 9.0))
-                else:
-                    review_system.review_posts(limit=10)
-            else:
-                review_system.review_posts(limit=10)
-        else:
-            print("📋 審核已取消")
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to start review system: {e}")
-        print(f"啟動審核系統失敗: {e}")
-        return False
 
 def show_api_stats():
     """顯示API使用統計"""
@@ -411,45 +308,6 @@ def show_api_stats():
     except Exception as e:
         logger.error(f"Failed to show API stats: {e}")
         print(f"顯示API統計失敗: {e}")
-        return False
-
-def optimize_ai_prompt():
-    """優化AI分析prompt"""
-    logger = logging.getLogger(__name__)
-    
-    try:
-        from prompt_optimizer import PromptOptimizer
-        
-        optimizer = PromptOptimizer()
-        
-        print("\n=== AI Prompt優化系統 ===")
-        
-        # 檢查是否有足夠的反饋數據
-        feedback_stats = optimizer.db.get_feedback_statistics()
-        
-        if feedback_stats.get('total_feedback', 0) < 5:
-            print("❌ 反饋數據不足 (至少需要5條反饋)")
-            print("💡 請先使用 --review 進行人工審核，累積足夠的反饋數據")
-            return False
-        
-        print(f"📊 找到 {feedback_stats['total_feedback']} 條反饋數據")
-        print(f"📈 當前準確率: {feedback_stats['accuracy_rate']:.1f}%")
-        
-        # 詢問是否運行優化工作流
-        run_optimization = input("\n是否運行prompt優化工作流? (y/n): ").strip().lower()
-        
-        if run_optimization == 'y':
-            # 運行優化工作流
-            optimizer.run_optimization_workflow(days_back=30, auto_save=False)
-        else:
-            # 只顯示分析結果
-            optimizer.analyze_feedback_patterns(days_back=30)
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to optimize prompt: {e}")
-        print(f"優化prompt失敗: {e}")
         return False
 
 def start_web_server():
@@ -522,9 +380,6 @@ def main():
   python main.py --stats                 # 查看統計信息
   python main.py --api-stats             # 查看API使用統計
   python main.py --test                  # 測試系統連接
-  python main.py --view-data             # 查看數據庫內容和AI評分
-  python main.py --review                # 人工審核AI評分系統
-  python main.py --optimize-prompt       # 優化AI分析prompt
         """
     )
     
@@ -536,9 +391,6 @@ def main():
     group.add_argument('--stats', action='store_true', help='顯示統計信息')
     group.add_argument('--api-stats', action='store_true', help='查看API使用統計')
     group.add_argument('--test', action='store_true', help='測試系統連接')
-    group.add_argument('--view-data', action='store_true', help='查看數據庫內容和AI評分')
-    group.add_argument('--review', action='store_true', help='人工審核AI評分系統')
-    group.add_argument('--optimize-prompt', action='store_true', help='優化AI分析prompt')
     group.add_argument('--test-telegram', action='store_true', help='測試 Telegram Bot 連接')
     group.add_argument('--ensure-prompts-worksheet', action='store_true', help='確保 AI Prompts worksheet 存在')
     
@@ -590,18 +442,6 @@ def main():
         elif args.test:
             test_connections()
             return 0
-        
-        elif args.view_data:
-            success = view_database_data()
-            return 0 if success else 1
-        
-        elif args.review:
-            success = start_review_system()
-            return 0 if success else 1
-        
-        elif args.optimize_prompt:
-            success = optimize_ai_prompt()
-            return 0 if success else 1
         
         elif args.test_telegram:
             # 測試 Telegram Bot

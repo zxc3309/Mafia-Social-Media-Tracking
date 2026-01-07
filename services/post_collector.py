@@ -47,9 +47,6 @@ class PostCollector:
                 elif client_type == "nitter":
                     if self._try_nitter_client():
                         return
-                elif client_type == "agent":
-                    if self._try_agent_client():
-                        return
                 else:
                     logger.warning(f"Unknown client type: {client_type}")
             except Exception as e:
@@ -79,32 +76,6 @@ class PostCollector:
             logger.warning("✗ No working Nitter instances available")
             return False
     
-    def _try_agent_client(self) -> bool:
-        """嘗試初始化 agent-twitter-client"""
-        try:
-            from clients.x_agent_client import XAgentClient
-
-            # 檢查配置
-            if not os.getenv('TWITTER_USERNAME') or not os.getenv('TWITTER_PASSWORD'):
-                logger.info("Twitter credentials not configured for Agent Client, skipping")
-                return False
-
-            agent_client = XAgentClient()
-
-            # 測試連接
-            if agent_client.is_available():
-                self.x_client = agent_client
-                logger.info("✓ X (Twitter) Agent client initialized successfully")
-                logger.info(f"Using agent-twitter-client with account: {os.getenv('TWITTER_USERNAME')}")
-                return True
-            else:
-                logger.warning("✗ Agent client not available")
-                return False
-
-        except Exception as e:
-            logger.warning(f"Agent client initialization failed: {e}")
-            return False
-
     def _try_apify_client(self) -> bool:
         """嘗試初始化 Apify Twitter client"""
         try:
@@ -474,10 +445,6 @@ class PostCollector:
             # 如果當前是 Apify Client，fallback 到 Nitter
             logger.info("Attempting fallback to Nitter...")
             posts = self._try_nitter_fallback(username)
-        elif current_client_type == "XAgentClient":
-            # 如果當前是 Agent Client，fallback 到 Nitter
-            logger.info("Attempting fallback to Nitter...")
-            posts = self._try_nitter_fallback(username)
         elif current_client_type == "NitterClient":
             # 如果當前是 Nitter，嘗試 Apify Client（如果有配置）
             logger.info("Attempting fallback to Apify Client...")
@@ -489,8 +456,6 @@ class PostCollector:
                 client_type = client_type.strip().lower()
                 if client_type == "apify":
                     posts = self._try_apify_fallback(username)
-                elif client_type == "agent":
-                    posts = self._try_agent_fallback(username)
                 elif client_type == "nitter":
                     posts = self._try_nitter_fallback(username)
 
@@ -525,32 +490,6 @@ class PostCollector:
         
         return []
     
-    def _try_agent_fallback(self, username: str) -> List[Dict[str, Any]]:
-        """嘗試使用 Agent Client 作為 fallback"""
-        try:
-            if not os.getenv('TWITTER_USERNAME') or not os.getenv('TWITTER_PASSWORD'):
-                logger.info("Twitter credentials not configured, cannot use Agent fallback")
-                return []
-
-            from clients.x_agent_client import XAgentClient
-            agent_client = XAgentClient()
-
-            if agent_client.is_available():
-                logger.info("✓ Agent fallback client available, fetching posts...")
-                posts = agent_client.get_user_tweets(username, days_back=1)
-                if posts:
-                    logger.info(f"✓ Agent fallback successful: got {len(posts)} posts for @{username}")
-                    return posts
-                else:
-                    logger.warning("Agent fallback returned no posts")
-            else:
-                logger.warning("Agent fallback unavailable")
-
-        except Exception as e:
-            logger.error(f"Agent fallback failed for @{username}: {e}")
-
-        return []
-
     def _try_apify_fallback(self, username: str) -> List[Dict[str, Any]]:
         """嘗試使用 Apify Client 作為 fallback"""
         try:

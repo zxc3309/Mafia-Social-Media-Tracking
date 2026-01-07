@@ -21,7 +21,7 @@ import uvicorn
 # 導入系統組件
 from services.scheduler import get_scheduler
 from services.post_collector import PostCollector
-from config import COLLECTION_SCHEDULE_HOUR, COLLECTION_SCHEDULE_MINUTE, AGENT_CLIENT_CONFIG
+from config import COLLECTION_SCHEDULE_HOUR, COLLECTION_SCHEDULE_MINUTE
 
 # Setup logging
 logging.basicConfig(

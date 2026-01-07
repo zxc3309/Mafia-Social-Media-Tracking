@@ -75,7 +75,7 @@ REPOST_GENERATION_PROMPT = os.getenv("REPOST_GENERATION_PROMPT", """
 """)
 
 # Twitter 客戶端優先順序配置
-# 可選值: "apify", "nitter", "agent"
+# 可選值: "apify", "nitter"
 TWITTER_CLIENT_PRIORITY = os.getenv("TWITTER_CLIENT_PRIORITY", "apify,nitter").split(",")
 
 # 平台配置
@@ -113,13 +113,6 @@ default_nitter_instances = [
 ]
 NITTER_INSTANCES = os.getenv("NITTER_INSTANCES", ",".join(default_nitter_instances)).split(",") if os.getenv("NITTER_INSTANCES") else default_nitter_instances
 
-
-# Agent Twitter Client 配置 (CLI-based)
-AGENT_CLIENT_CONFIG = {
-    "enabled": os.getenv("TWITTER_USE_AGENT_CLIENT", "true").lower() == "true",
-    "timeout": int(os.getenv("AGENT_CLIENT_TIMEOUT", "60")),  # CLI 執行超時(秒)
-    "max_retries": int(os.getenv("AGENT_CLIENT_RETRIES", "3"))  # 重試次數
-}
 
 # Apify Client 配置
 APIFY_API_TOKEN = os.getenv("APIFY_API_TOKEN")
