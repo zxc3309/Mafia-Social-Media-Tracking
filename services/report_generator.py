@@ -145,15 +145,16 @@ class ReportGenerator:
     def _format_posts_for_ai(self, posts: List[AnalyzedPost]) -> str:
         """Format posts as simple list for AI input"""
         posts_list = []
-        
+
         for post in posts:
             # Use summary if available, otherwise use original content (truncated)
             content = post.summary if post.summary else post.original_content[:200]
-            
+
             # Use post_url if available, otherwise fallback to user profile
             link_url = post.post_url if post.post_url else f"https://x.com/{post.author_username}"
-            posts_list.append(f"<a href=\"{link_url}\">@{post.author_username}</a>: {content}")
-            
+            # Make the content itself a clickable link
+            posts_list.append(f"@{post.author_username}: <a href=\"{link_url}\">{content}</a>")
+
         return "\n".join(posts_list)
         
     def _generate_simple_summary(self, posts: List[AnalyzedPost]) -> str:
@@ -224,11 +225,13 @@ Use /help for more commands"""
             logger.debug(f"Could not get prompt from sheets: {e}")
             
         # Default prompt if not found in sheets
-        return """Organize these important social media posts into a concise English summary:
+        return """Summarize these important social media posts from the past day:
 
 {posts_list}
 
-Group by account if needed. Keep it brief and highlight key information. Format for Telegram with clear sections."""
+IMPORTANT: You MUST preserve all HTML hyperlinks exactly as they appear (e.g., <a href="...">text</a>).
+Group by account if needed. Keep it brief and highlight key information.
+Output format: For each important topic, write a brief summary with the clickable link preserved."""
         
     def send_daily_report(self, results: Dict[str, Any]) -> bool:
         """
