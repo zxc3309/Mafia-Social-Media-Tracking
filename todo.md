@@ -1,27 +1,45 @@
-# Plan: Update Telegram Bot Link Formatting
+# Plan: Add Date Filtering for Posts from Apify API
 
 ## Problem
-Currently, the entire post content/sentence is wrapped in a hyperlink. User wants to display the content as plain text and add a link at the end instead.
+Posts returned from Apify API sometimes have timestamps from a long time ago, even though we pass date range parameters (days_back=1). The API doesn't always respect the date filters, so we need client-side validation.
 
-Example:
-- Current: `<a href="url">Sanctum announced a small seed extension round...</a>`
-- Desired: `Sanctum announced a small seed extension round... [Link](url)` or `Sanctum announced... url`
+## Analysis
+Current situation:
+- Date parameters are passed to Apify API in `apify_twitter_client.py`:
+  - Line 62-63: `start` and `end` date in `get_user_tweets()`
+  - Line 151: `since` and `until` in search query for `get_batch_tweets()`
+- Posts are mapped in `_map_apify_to_standard()` (lines 224-313)
+- No client-side date validation after receiving posts
+
+## Solution
+Add client-side date filtering to ensure all returned posts are within the expected date range (days_back parameter).
 
 ## Tasks
-- [ ] Update `_format_posts_for_ai` method in `services/report_generator.py` (line 156)
-  - Change from: `<a href="{link_url}">{content}</a>`
-  - Change to: `{content} <a href="{link_url}">Link</a>`
+- [ ] Add date validation helper method in `apify_twitter_client.py`
+  - Create `_is_within_date_range()` method to check if post timestamp is within expected range
+  - Accept post_time, start_date, end_date as parameters
+  - Return True/False
 
-- [ ] Update `_generate_simple_summary` method in `services/report_generator.py` (line 180)
-  - Change from: `<a href="{link_url}">{content}...</a>`
-  - Change to: `{content}... <a href="{link_url}">Link</a>`
+- [ ] Update `get_user_tweets()` method to filter posts by date
+  - After mapping posts in lines 98-105, filter by date range
+  - Log warning when posts outside date range are found
+  - Only return posts within the expected date range (start_date to end_date)
 
-- [ ] Test the changes locally (optional, if testing environment available)
+- [ ] Update `get_batch_tweets()` method to filter posts by date
+  - After mapping posts in lines 188-206, filter by date range
+  - Log warning when posts outside date range are found
+  - Only return posts within the expected date range
 
-- [ ] Commit changes with clear message
+- [ ] Add logging to track filtered posts
+  - Log count of posts filtered due to date mismatch
+  - Log sample of out-of-range dates for debugging
 
-- [ ] Push to branch `claude/update-funding-info-U15EL`
+- [ ] Test the changes (if possible)
 
-## Notes
-- Using HTML `<a>` tags since Telegram parse_mode is set to "HTML"
-- Keeping author links unchanged (line 174) - only modifying content links
+- [ ] Commit and push changes to `claude/filter-posts-by-date-pXZA8`
+
+## Implementation Notes
+- Parse post_time (ISO 8601 format) to datetime for comparison
+- Handle timezone-aware comparisons (all times are UTC)
+- Keep the existing API parameters - filtering is additional safety layer
+- This is a defensive approach: API should filter, but we validate client-side
