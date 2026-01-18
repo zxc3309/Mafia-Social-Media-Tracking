@@ -113,8 +113,21 @@ class ApifyTwitterClient:
                 if retweet_count > 0 or reply_count > 0 or quote_count > 0:
                     logger.warning(f"API filtering incomplete: {retweet_count} RTs, {reply_count} replies, {quote_count} quotes still present")
 
-            logger.info(f"Successfully mapped {len(standardized_tweets)} tweets for @{username}")
-            return standardized_tweets
+            # 客戶端日期篩選：確保所有推文都在指定時間範圍內
+            filtered_tweets = []
+            out_of_range_count = 0
+            for tweet in standardized_tweets:
+                if self._is_within_date_range(tweet['post_time'], start_date, end_date):
+                    filtered_tweets.append(tweet)
+                else:
+                    out_of_range_count += 1
+                    logger.debug(f"Filtered out-of-range tweet: {tweet['post_id']} at {tweet['post_time']}")
+
+            if out_of_range_count > 0:
+                logger.warning(f"Filtered {out_of_range_count} tweets outside date range ({start_date.date()} to {end_date.date()}) for @{username}")
+
+            logger.info(f"Successfully mapped {len(filtered_tweets)} tweets for @{username} (filtered {out_of_range_count} out-of-range)")
+            return filtered_tweets
 
         except Exception as e:
             logger.error(f"Error fetching tweets from Apify for @{username}: {e}")
@@ -184,6 +197,7 @@ class ApifyTwitterClient:
             # 按用戶分組結果
             results_by_user = {username: [] for username in usernames}
             unmatched_count = 0
+            out_of_range_count = 0
 
             for item in dataset_items:
                 try:
@@ -196,7 +210,12 @@ class ApifyTwitterClient:
                             # 映射推文並驗證用戶名
                             tweet = self._map_apify_to_standard(item, expected_username=author_username)
                             if tweet:
-                                results_by_user[author_username].append(tweet)
+                                # 客戶端日期篩選：確保推文在指定時間範圍內
+                                if self._is_within_date_range(tweet['post_time'], start_date, end_date):
+                                    results_by_user[author_username].append(tweet)
+                                else:
+                                    out_of_range_count += 1
+                                    logger.debug(f"Filtered out-of-range tweet: {tweet['post_id']} at {tweet['post_time']}")
                         else:
                             unmatched_count += 1
                             if author_username:
@@ -215,11 +234,42 @@ class ApifyTwitterClient:
             if unmatched_count > 0:
                 logger.info(f"Filtered out {unmatched_count} tweets from non-target users")
 
+            if out_of_range_count > 0:
+                logger.warning(f"Filtered {out_of_range_count} tweets outside date range ({start_date.date()} to {end_date.date()})")
+
             return results_by_user
 
         except Exception as e:
             logger.error(f"Error in batch fetch: {e}")
             return {}
+
+    def _is_within_date_range(self, post_time_str: str, start_date: datetime, end_date: datetime) -> bool:
+        """
+        檢查貼文時間是否在指定的日期範圍內
+
+        Args:
+            post_time_str: ISO 8601 格式的時間字串
+            start_date: 開始日期
+            end_date: 結束日期
+
+        Returns:
+            True 如果在範圍內，False 如果超出範圍
+        """
+        try:
+            # 解析 ISO 8601 時間字串
+            post_time = datetime.fromisoformat(post_time_str.replace('Z', '+00:00'))
+
+            # 確保 start_date 和 end_date 是 timezone-aware
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=post_time.tzinfo)
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=post_time.tzinfo)
+
+            return start_date <= post_time <= end_date
+        except Exception as e:
+            logger.warning(f"Failed to parse post time '{post_time_str}' for date range check: {e}")
+            # 如果無法解析時間，保守地保留這個貼文
+            return True
 
     def _map_apify_to_standard(self, apify_tweet: Dict, expected_username: str = None) -> Optional[Dict[str, Any]]:
         """
